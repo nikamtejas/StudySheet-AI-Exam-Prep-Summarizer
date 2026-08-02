@@ -1,4 +1,5 @@
-import { S3Client, HeadBucketCommand } from '@aws-sdk/client-s3';
+import { S3Client, HeadBucketCommand, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '../config/env';
 import { describeError } from './errors';
 import type { HealthCheckResult } from '../contracts';
@@ -38,4 +39,32 @@ export async function checkStorage(): Promise<HealthCheckResult> {
   } catch (err) {
     return { ok: false, latencyMs: Date.now() - start, error: describeError(err) };
   }
+}
+
+const PRESIGN_EXPIRY_SECONDS = 15 * 60;
+
+export async function createPresignedUploadUrl(key: string, contentType: string): Promise<string> {
+  const command = new PutObjectCommand({ Bucket: env.R2_BUCKET, Key: key, ContentType: contentType });
+  return getSignedUrl(getStorageClient(), command, { expiresIn: PRESIGN_EXPIRY_SECONDS });
+}
+
+export async function uploadObject(
+  key: string,
+  body: Buffer,
+  contentType: string,
+): Promise<void> {
+  await getStorageClient().send(
+    new PutObjectCommand({ Bucket: env.R2_BUCKET, Key: key, Body: body, ContentType: contentType }),
+  );
+}
+
+export async function downloadObject(key: string): Promise<Buffer> {
+  const result = await getStorageClient().send(
+    new GetObjectCommand({ Bucket: env.R2_BUCKET, Key: key }),
+  );
+  if (!result.Body) {
+    throw new Error(`Object at "${key}" has no body`);
+  }
+  const bytes = await result.Body.transformToByteArray();
+  return Buffer.from(bytes);
 }

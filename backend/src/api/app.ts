@@ -5,6 +5,8 @@ import { env } from '../config/env';
 import { logger } from '../lib/logger';
 import { requestId } from './middleware/requestId';
 import { healthRouter } from './routes/health';
+import { uploadsRouter } from './routes/uploads';
+import { documentsRouter } from './routes/documents';
 
 export function createApp(): Express {
   const app = express();
@@ -21,6 +23,8 @@ export function createApp(): Express {
   app.use(express.json());
 
   app.use('/health', healthRouter);
+  app.use('/api/uploads', uploadsRouter);
+  app.use('/api/documents', documentsRouter);
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path });

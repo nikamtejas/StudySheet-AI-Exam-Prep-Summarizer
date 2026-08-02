@@ -9,6 +9,22 @@ jobs:
   backend:
     name: backend (lint, typecheck, test)
     runs-on: ubuntu-latest
+    # Mongo + MinIO backing M1's ingest integration tests (test/ingest.test.ts).
+    # Ports/credentials/bucket match .env.example exactly, so the checked-out
+    # .env.example needs no per-job overrides — it already points here.
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+      minio:
+        image: bitnami/minio:latest
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: studysheet
+          MINIO_ROOT_PASSWORD: studysheet-dev
+          MINIO_DEFAULT_BUCKETS: studysheet-dev
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,12 +32,29 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: backend/package-lock.json
+      - name: Install poppler-utils (pdftoppm — page rasterization)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - name: Install dependencies
         working-directory: backend
         run: npm ci
       - name: Prepare env
         working-directory: backend
         run: cp .env.example .env
+      - name: Wait for Mongo and MinIO
+        run: |
+          for i in $(seq 1 30); do nc -z localhost 27017 && break; sleep 1; done
+          for i in $(seq 1 30); do nc -z localhost 9000 && break; sleep 1; done
+      - name: Ensure the MinIO bucket exists
+        working-directory: backend
+        run: |
+          node -e "
+          const { S3Client, CreateBucketCommand, HeadBucketCommand } = require('@aws-sdk/client-s3');
+          const client = new S3Client({ region: 'auto', endpoint: 'http://localhost:9000', forcePathStyle: true, credentials: { accessKeyId: 'studysheet', secretAccessKey: 'studysheet-dev' } });
+          (async () => {
+            try { await client.send(new HeadBucketCommand({ Bucket: 'studysheet-dev' })); }
+            catch { await client.send(new CreateBucketCommand({ Bucket: 'studysheet-dev' })); }
+          })();
+          "
       - name: Verify
         working-directory: backend
         run: npm run verify
