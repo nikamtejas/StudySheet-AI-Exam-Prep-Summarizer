@@ -1,0 +1,114 @@
+# StudySheet — CLAUDE.md
+
+AI exam-prep PDF summarizer. Full spec: `docs/studysheet-build-prompt.md`. Build order and
+per-milestone gates: `docs/studysheet-milestones.md`. Read both before touching a milestone you
+haven't worked on yet — this file is the rules, those are the requirements.
+
+## Current milestone
+
+**M0 — Foundations: done.** Both folders build, lint, typecheck, and test independently from a
+clean clone; contracts sync + drift-check wired into CI; `/health` on api and worker checks
+Mongo/Redis/storage; env is Zod-validated at boot in both folders.
+
+Next up: **M1 — Ingest and probe** (see docs/studysheet-milestones.md).
+
+Update this section when a milestone's gate passes, before starting the next one.
+
+## Folder map
+
+```
+studysheet/
+├── frontend/            Next.js 15 (App Router) + React 19 + TS — UI *and* all PDF/preview rendering
+├── backend/              Express API + BullMQ worker (one codebase, two npm scripts, two processes)
+├── docker-compose.yml    Mongo, Redis, MinIO (local stand-in for Cloudflare R2)
+├── docs/                 the build-prompt spec + the milestone plan
+└── Makefile              make dev / verify / test — drives both folders from the root
+```
+
+Two independent Node projects. Separate `package.json`, separate lockfile, separate deploy. No
+workspaces, no shared package linking, no path aliases crossing the folder boundary.
+
+- `frontend/` has **no business logic and no database access** — it talks to the backend over
+  HTTP through `frontend/src/lib/api.ts` only (added in M7), and never imports backend code.
+- `backend/src/contracts/` is the **source of truth** for every Zod schema. Run
+  `npm run sync:contracts` (in `backend/`) to copy it into `frontend/src/contracts/`. That copy
+  is generated — the header says so — never hand-edit it, never define the same type twice.
+- The PDF is produced by the frontend's `/print/[summaryId]` route (server-rendered, zero client
+  JS); the backend's Puppeteer worker just navigates to it and calls `page.pdf()`. One
+  implementation of every visual, two surfaces. Arrives in M5/M6.
+
+## Commands
+
+Run from the repo root:
+
+```
+make install    # npm install in both folders
+make dev        # api + worker + frontend dev servers together
+make verify     # lint + typecheck + test in both folders — this is the CI gate, runnable locally
+make up / down  # docker compose for Mongo/Redis/MinIO
+```
+
+Or per folder: `npm run dev:api` / `npm run dev:worker` / `npm run dev` (frontend),
+`npm run verify`, `npm run lint`, `npm run typecheck`, `npm run test`.
+
+Local dev needs `backend/.env` and `frontend/.env.local` — copy from the adjacent `.example`
+file. Both are Zod-validated at process start; a missing required var fails immediately with
+the var named, not later when something tries to use it.
+
+## Performance budgets (gates, not aspirations)
+
+| Thing | Budget |
+|---|---|
+| Any API route that isn't a job submit | p95 < 200ms |
+| Job submit → queued, response returned | < 400ms |
+| First summary section streamed to client | < 20s for a 30-page typed PDF |
+| Full 100-page vision job | < 4 min |
+| Single-problem solve | < 15s |
+| PDF render from stored JSON | < 3s, zero API calls |
+| Landing LCP / TTI | < 1.2s / < 2.0s |
+| First-load JS on landing | < 120KB gzipped |
+
+## Reliability invariants — violating any of these is a bug even if tests pass
+
+1. No AI call in a request/response cycle. Ever. Everything model-touching runs in the worker.
+2. Every pipeline stage is idempotent and independently resumable. Re-running a completed stage
+   is free and produces identical output.
+3. Every model call is wrapped: timeout, 3 retries with jittered backoff, and a typed failure
+   that degrades the output instead of failing the job.
+4. Every model response is parsed with Zod. On failure, retry once with the validation error
+   appended; then fall back, never crash.
+5. Partial failure degrades visibly — "pages 40–48 couldn't be read" printed in the output —
+   never silently.
+6. Intermediate JSON is persisted at every stage. Re-rendering, restyling, and regenerating
+   derived artifacts must never re-run the model.
+7. Money and quota move through one code path with reservation-then-commit semantics.
+8. Every job records `costCents` and `tokensUsed`. Untracked spend is a production incident
+   waiting to happen.
+9. External input is untrusted: file type, size, page count, and text density are validated
+   before a single token is spent.
+10. Structured logs with a `jobId` on every line.
+
+## Engineering rules
+
+- TypeScript strict everywhere. `any` requires a comment explaining why (ESLint enforces this —
+  `@typescript-eslint/no-explicit-any` is an error, not a warning, in both folders).
+- Zod schemas live in `backend/src/contracts/`, synced into `frontend/src/contracts/` by script.
+  Never hand-edit the frontend copy.
+- Tests are written in the same commit as the code, not "later".
+- No new dependency without a one-line justification in the PR description.
+- Conventional commits, one commit per logical unit.
+- Don't build ahead of the current milestone. Each milestone's doc says explicitly what *not* to
+  build yet — that's deliberate sequencing, not an oversight.
+
+## Env vars not required until later milestones
+
+`env.ts` in both folders validates at boot, but a few vars are intentionally optional until the
+milestone that wires them up makes them load-bearing, so M0–M1 dev doesn't require live keys:
+
+- `ANTHROPIC_API_KEY` — optional until M2 (real Claude calls)
+- `STRIPE_*` / `RAZORPAY_*` — optional until M10 (billing)
+- `RENDER_TOKEN_SECRET` in `frontend/.env.local` — optional until M6 (the `/print` route)
+
+Everything else (Mongo, Redis, storage, `AUTH_SECRET`, `RENDER_TOKEN_SECRET` in `backend/.env`,
+`FRONTEND_URL`/`CORS_ORIGIN`, `NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_APP_URL`) is required now and
+has no default — see `.env.example` / `.env.local.example` for the local dev values.
