@@ -18,6 +18,9 @@ export const DetectedPageSchema = z.object({
   // Storage key for the rasterized JPEG. Only set once the vision path has
   // actually rasterized this page (M1 rasterizes eagerly; see pipeline/rasterize.ts).
   rasterKey: z.string().nullable(),
+  // Byte size of that JPEG — lets pipeline/chunkVision.ts (M3) batch pages
+  // without downloading every raster just to measure it.
+  rasterSizeBytes: z.number().int().nonnegative().nullable(),
 });
 export type DetectedPage = z.infer<typeof DetectedPageSchema>;
 

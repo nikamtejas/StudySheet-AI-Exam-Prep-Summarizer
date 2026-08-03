@@ -9,7 +9,12 @@ import { chunkVisionPages } from './chunkVision';
 import { mapChunk } from './map';
 import { mapVisionBatch } from './mapVision';
 import { reduceChunks } from './reduce';
+import { solveOne } from './verify';
 import { synthesize } from './synthesize';
+
+// Problems are solved+verified in parallel, capped — never sequentially and
+// never batched into one call (docs/studysheet-build-prompt.md §7 stage 7).
+const SOLVE_CONCURRENCY = 4;
 
 // Drives a Job through prepare → chunk → map → reduce → synthesize, exactly
 // as far as its persisted `stage` allows. Every stage checks `job.stage`
@@ -126,6 +131,49 @@ export async function processJob(jobId: string): Promise<void> {
     if (job.stage === 'reducing') {
       log.info('stage: reducing');
       job.reduced = reduceChunks(job.chunkResults.map((r) => r.result));
+      job.problems = job.reduced.problems;
+      job.stage = 'solving';
+      await job.save();
+    }
+
+    if (job.stage === 'solving') {
+      const alreadyDone = new Set(job.problemResults.map((r) => r.problemIndex));
+      const pending = job.problems
+        .map((problem, index) => ({ problem, index }))
+        .filter(({ index }) => !alreadyDone.has(index));
+
+      // Concurrency-capped batches: real parallelism for the model calls
+      // (never batched into one call), but persisted once per batch so
+      // concurrent saves never race on the same in-memory Job document — a
+      // crash mid-batch loses at most that batch's in-flight problems, never
+      // an already-persisted one.
+      for (let i = 0; i < pending.length; i += SOLVE_CONCURRENCY) {
+        const batch = pending.slice(i, i + SOLVE_CONCURRENCY);
+        log.info(
+          { batchStart: i, batchSize: batch.length, of: pending.length },
+          'stage: solving batch',
+        );
+        const results = await Promise.all(
+          batch.map(async ({ problem, index }) => ({
+            index,
+            result: await solveOne({ statement: problem.statement, pageRef: problem.pageRef }),
+          })),
+        );
+        for (const { index, result } of results) {
+          job.problemResults.push({
+            problemIndex: index,
+            result: result.data,
+            inputTokens: result.usage.inputTokens,
+            outputTokens: result.usage.outputTokens,
+            costCents: result.costCents,
+          });
+          job.tokensUsed.input += result.usage.inputTokens;
+          job.tokensUsed.output += result.usage.outputTokens;
+          job.costCents += result.costCents;
+        }
+        await job.save();
+      }
+
       job.stage = 'synthesizing';
       await job.save();
     }
@@ -144,6 +192,7 @@ export async function processJob(jobId: string): Promise<void> {
         sections: result.data.sections,
         definitions: result.data.definitions,
         examQuestions: result.data.examQuestions,
+        problems: job.problemResults.map((r) => r.result),
         connections: [],
         version: 1,
       });

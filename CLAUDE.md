@@ -92,7 +92,55 @@ worker processes against the same real database, and a shared broad prefix (`tes
 file's cleanup delete another file's still-in-flight job, surfacing as a Mongoose `VersionError`.
 If adding another real-Mongo test file, give it its own disjoint prefix too.
 
-Next up: **M4 — Solve and verify** (see docs/studysheet-milestones.md).
+**M4 — Solve and verify: built, gate not yet run for real.** Problems detected during M2's reduce
+stage (`ChunkProblem[]`, already deduped) now get solved and independently verified.
+`pipeline/solve.ts`'s `solve(statement)` is one Sonnet 5 call (adaptive thinking on) producing the
+full `SolvedProblemSchema` JSON from `contracts/problem.ts` — `given`/`goal`/`strategy`/`steps`
+(each with a **required** `why`)/`answer`/`check`/`commonMistake`/`memoryHook`, plus an optional
+`visual: VisualSpec`. `pipeline/verify.ts`'s `solveOne(problem)` is the verified, resumable entry
+point (also the standalone function M11's paste/photo single-problem flow will call directly):
+it fires two independent `solve()` calls in parallel that never see each other's output, compares
+final answers with `answersAgree()` (numeric-aware — mathjs `evaluate()` so "1/2" and "0.5" agree;
+mathjs unit conversion so "5 m/s" and "18 km/h" agree; a genuine dimensional mismatch, e.g. "5 m"
+vs "5 s", fails outright even if the bare numbers match), and on disagreement runs a third attempt
+and takes the majority. All three disagreeing never drops the problem — it comes back
+`verified: false` with a visible `verificationNote`, full solution intact (reliability invariant
+5). `NUMERIC_TOLERANCE` is deliberately loose (0.5%, not float-equality): two *correct* independent
+solves of an irrational-answer problem (a pendulum period, say) will round their displayed answer
+differently, and that's not a disagreement worth escalating over.
+
+`pipeline/orchestrate.ts` gained a `'solving'` stage between `'reducing'` and `'synthesizing'`:
+problems run concurrency-capped (`SOLVE_CONCURRENCY = 4`) in batches — real parallelism for the
+model calls (never sequential, never batched into one call, per spec), but persisted once per
+*batch* rather than once per problem, so concurrent `job.save()` calls never race on the same
+in-memory Mongoose document. A crash mid-batch loses at most that batch's in-flight problems, never
+an already-persisted one — proven in `test/orchestrate-solve.test.ts` (own disjoint `userId`
+prefix, `test-solve-orch-`, per the cross-file cleanup-race lesson from M3). `Job` gained
+`problems`/`problemResults`; `Summary` gained a `problems: VerifiedProblem[]` field (stored as one
+Mixed blob, like `Job.reduced` — Mongoose's TS types reject `[Schema.Types.Mixed]` against a
+strongly-typed array field, but accept a bare `Schema.Types.Mixed`, and it round-trips as a real
+array at runtime regardless).
+
+`VisualSpec` (`contracts/problem.ts`) is typed as the full ten-kind discriminated union from
+docs/studysheet-build-prompt.md §4, but nested per-kind shapes (geometry shapes, tree nodes,
+flowchart nodes/edges) are deliberately loose (`z.unknown()`) — M5 "Visual primitives" owns the
+renderer and tightens each kind's fields to match what its React SVG component actually needs.
+Nothing renders a `VisualSpec` yet; M4's job was only to constrain the model to one of the ten
+shapes via structured output. The three-rung ladder (Worked/Guided/Practice) from §4's narrative
+text is **not** built — it isn't listed as an M4 (or any current) milestone deliverable.
+
+**Fixture set + eval harness built, but the M4 gate itself (≥95% overall / ≥90% per subject) has
+not been run for real** — same `ANTHROPIC_API_KEY`-not-configured-yet situation as M2/M3.
+`fixtures/problems/{math,physics,chemistry,cs,economics,biology}.json`, 10 each, every expected
+answer computed via mathjs (not hand-arithmetic) and unit strings confirmed real (`mathjs.unit()`
+doesn't throw). `npm run eval:solve` loads them, runs `solveOne()` concurrency-capped, grades with
+the same `answersAgree()` used internally, and prints a per-subject pass-rate/latency/cost table
+plus a pass/fail exit code against the gate. Confirmed it fails cleanly (per-fixture, not
+crashing/hanging) with no key configured — same pattern as the M2/M3 CLI smoke tests. If picking
+this up: add `ANTHROPIC_API_KEY` and run `npm run eval:solve` as the real gate check before
+enabling any subject.
+
+Next up: **M5 — Visual primitives** (see docs/studysheet-milestones.md).
 
 Update this section when a milestone's gate passes, before starting the next one.
 

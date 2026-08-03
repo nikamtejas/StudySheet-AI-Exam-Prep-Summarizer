@@ -1,6 +1,6 @@
 import { Schema, model, type HydratedDocument } from 'mongoose';
-import type { JobStage, JobStatus, Depth } from '../contracts';
-import type { ChunkExtraction } from '../pipeline/map';
+import type { JobStage, JobStatus, Depth, VerifiedProblem } from '../contracts';
+import type { ChunkExtraction, ChunkProblem } from '../pipeline/map';
 import type { PreparedPage } from '../pipeline/prepare';
 import type { Chunk } from '../pipeline/chunk';
 import type { VisionChunk } from '../pipeline/chunkVision';
@@ -19,6 +19,16 @@ export interface VisionPageRecord {
 export interface ChunkResultRecord {
   chunkIndex: number;
   result: ChunkExtraction;
+  inputTokens: number;
+  outputTokens: number;
+  costCents: number;
+}
+
+// One detected-but-not-yet-solved problem carried forward from reduce's
+// output into the "solving" stage — see pipeline/orchestrate.ts.
+export interface ProblemResultRecord {
+  problemIndex: number;
+  result: VerifiedProblem;
   inputTokens: number;
   outputTokens: number;
   costCents: number;
@@ -47,6 +57,11 @@ export interface JobAttrs {
   visionChunks: VisionChunk[];
   chunkResults: ChunkResultRecord[];
   reduced: ReducedContent | null;
+  // Solve path (M4): problems detected during reduce, solved+verified one at
+  // a time (concurrency-capped, not sequential) during the "solving" stage.
+  // See docs/studysheet-milestones.md M4 and reliability invariants 2/6.
+  problems: ChunkProblem[];
+  problemResults: ProblemResultRecord[];
   tokensUsed: { input: number; output: number };
   costCents: number;
   summaryId: string | null;
@@ -107,6 +122,25 @@ const VisionChunkMongooseSchema = new Schema<VisionChunk>(
   { _id: false },
 );
 
+const ChunkProblemMongooseSchema = new Schema<ChunkProblem>(
+  {
+    statement: { type: String, required: true },
+    pageRef: { type: Number, required: true },
+  },
+  { _id: false },
+);
+
+const ProblemResultMongooseSchema = new Schema<ProblemResultRecord>(
+  {
+    problemIndex: { type: Number, required: true },
+    result: { type: Schema.Types.Mixed, required: true },
+    inputTokens: { type: Number, required: true },
+    outputTokens: { type: Number, required: true },
+    costCents: { type: Number, required: true },
+  },
+  { _id: false },
+);
+
 const JobMongooseSchema = new Schema<JobAttrs>(
   {
     userId: { type: String, required: true },
@@ -118,7 +152,17 @@ const JobMongooseSchema = new Schema<JobAttrs>(
     },
     stage: {
       type: String,
-      enum: ['queued', 'preparing', 'chunking', 'mapping', 'reducing', 'synthesizing', 'done', 'failed'],
+      enum: [
+        'queued',
+        'preparing',
+        'chunking',
+        'mapping',
+        'reducing',
+        'solving',
+        'synthesizing',
+        'done',
+        'failed',
+      ],
       default: 'queued',
     },
     config: {
@@ -131,6 +175,8 @@ const JobMongooseSchema = new Schema<JobAttrs>(
     visionChunks: { type: [VisionChunkMongooseSchema], default: [] },
     chunkResults: { type: [ChunkResultMongooseSchema], default: [] },
     reduced: { type: Schema.Types.Mixed, default: null },
+    problems: { type: [ChunkProblemMongooseSchema], default: [] },
+    problemResults: { type: [ProblemResultMongooseSchema], default: [] },
     tokensUsed: {
       input: { type: Number, default: 0 },
       output: { type: Number, default: 0 },

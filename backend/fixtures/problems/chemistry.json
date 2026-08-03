@@ -1,0 +1,12 @@
+[
+  { "id": "chemistry-01", "subject": "chemistry", "statement": "How many moles are in 44 g of CO2? (molar mass of CO2 = 44 g/mol)", "expected": { "value": "1", "units": "mol" } },
+  { "id": "chemistry-02", "subject": "chemistry", "statement": "Balance the combustion of methane: CH4 + O2 -> CO2 + H2O. What coefficient does O2 need?", "expected": { "value": "2" } },
+  { "id": "chemistry-03", "subject": "chemistry", "statement": "What is the pH of a solution with [H+] = 1e-3 M?", "expected": { "value": "3" } },
+  { "id": "chemistry-04", "subject": "chemistry", "statement": "How many grams are in 2 moles of NaCl? (molar mass of NaCl = 58.5 g/mol)", "expected": { "value": "117", "units": "g" } },
+  { "id": "chemistry-05", "subject": "chemistry", "statement": "What is the molarity of a solution containing 2 mol of solute in 4 L of solution?", "expected": { "value": "0.5", "units": "mol/L" } },
+  { "id": "chemistry-06", "subject": "chemistry", "statement": "At STP, what volume does 2 moles of an ideal gas occupy? (molar volume at STP = 22.4 L/mol)", "expected": { "value": "44.8", "units": "L" } },
+  { "id": "chemistry-07", "subject": "chemistry", "statement": "How many atoms are in 2 moles of carbon? (Avogadro's number = 6.022e23 per mole)", "expected": { "value": "1.2044e24" } },
+  { "id": "chemistry-08", "subject": "chemistry", "statement": "How many moles are in 3.011e23 particles of a substance? (Avogadro's number = 6.022e23 per mole)", "expected": { "value": "0.5", "units": "mol" } },
+  { "id": "chemistry-09", "subject": "chemistry", "statement": "A gas at constant pressure starts at 300 K. If its volume doubles, what is its final temperature (Charles's Law)?", "expected": { "value": "600", "units": "K" } },
+  { "id": "chemistry-10", "subject": "chemistry", "statement": "A reaction consumes 0.25 mol of reactant A every minute. How many moles are consumed in 8 minutes?", "expected": { "value": "2", "units": "mol" } }
+]

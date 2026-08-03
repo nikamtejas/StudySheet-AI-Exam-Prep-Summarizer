@@ -1,0 +1,12 @@
+[
+  { "id": "economics-01", "subject": "economics", "statement": "The price of a good rises from $20 to $25. What is the percentage increase?", "expected": { "value": "25%" } },
+  { "id": "economics-02", "subject": "economics", "statement": "Demand is Qd = 100 - 2P and supply is Qs = 20 + 3P. Find the equilibrium price P.", "expected": { "value": "16" } },
+  { "id": "economics-03", "subject": "economics", "statement": "Demand is Qd = 100 - 2P and supply is Qs = 20 + 3P. Find the equilibrium quantity.", "expected": { "value": "68" } },
+  { "id": "economics-04", "subject": "economics", "statement": "GDP grows from $2 trillion to $2.1 trillion in one year. What is the growth rate as a percentage?", "expected": { "value": "5%" } },
+  { "id": "economics-05", "subject": "economics", "statement": "Find the simple interest earned on $1000 at a 5% annual rate over 3 years.", "expected": { "value": "150" } },
+  { "id": "economics-06", "subject": "economics", "statement": "The price elasticity of demand for a good is -2. If price increases by 10%, what is the percentage change in quantity demanded?", "expected": { "value": "-20%" } },
+  { "id": "economics-07", "subject": "economics", "statement": "Find the future value of $500 invested at 4% annual compound interest for 2 years.", "expected": { "value": "540.8" } },
+  { "id": "economics-08", "subject": "economics", "statement": "A firm has fixed costs of $200 and variable cost of $5 per unit. Find the total cost of producing 40 units.", "expected": { "value": "400" } },
+  { "id": "economics-09", "subject": "economics", "statement": "A consumer's income rises by 10% and their quantity demanded rises by 20%. Find the income elasticity of demand.", "expected": { "value": "2" } },
+  { "id": "economics-10", "subject": "economics", "statement": "Producing 1 more unit of good X requires giving up 3 units of good Y. What is the opportunity cost of X, in units of Y?", "expected": { "value": "3" } }
+]

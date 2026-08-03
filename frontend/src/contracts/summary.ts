@@ -4,6 +4,7 @@
 
 import { z } from 'zod';
 import { HighlightKindSchema, DepthSchema } from './common';
+import { VerifiedProblemSchema } from './problem';
 
 export const HighlightSchema = z.object({
   text: z.string(),
@@ -62,6 +63,7 @@ export const SummarySchema = z.object({
   sections: z.array(SectionSchema),
   definitions: z.array(DefinitionSchema),
   examQuestions: z.array(ExamQuestionSchema),
+  problems: z.array(VerifiedProblemSchema),
   connections: z.array(ConnectionSchema),
   version: z.number().int().positive(),
   createdAt: z.string(),
@@ -74,6 +76,7 @@ export const JobStageSchema = z.enum([
   'chunking',
   'mapping',
   'reducing',
+  'solving',
   'synthesizing',
   'done',
   'failed',

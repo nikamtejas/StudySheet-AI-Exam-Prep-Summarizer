@@ -1,0 +1,12 @@
+[
+  { "id": "math-01", "subject": "math", "statement": "Solve for x: 3x - 7 = 14", "expected": { "value": "7" } },
+  { "id": "math-02", "subject": "math", "statement": "Simplify: 2/3 + 1/6", "expected": { "value": "5/6" } },
+  { "id": "math-03", "subject": "math", "statement": "Find f'(2) where f(x) = 3x^2 + 2x.", "expected": { "value": "14" } },
+  { "id": "math-04", "subject": "math", "statement": "Evaluate the definite integral of 3x^2 from x=0 to x=2.", "expected": { "value": "8" } },
+  { "id": "math-05", "subject": "math", "statement": "Find the 10th term of the arithmetic sequence 3, 7, 11, 15, ...", "expected": { "value": "39" } },
+  { "id": "math-06", "subject": "math", "statement": "How many distinct ways can the letters in the word MATH be arranged?", "expected": { "value": "24" } },
+  { "id": "math-07", "subject": "math", "statement": "Two fair six-sided dice are rolled. What is the probability their sum is 7?", "expected": { "value": "1/6" } },
+  { "id": "math-08", "subject": "math", "statement": "Solve for x: log base 2 of x = 5.", "expected": { "value": "32" } },
+  { "id": "math-09", "subject": "math", "statement": "Find the slope of the line through the points (2, 3) and (6, 11).", "expected": { "value": "2" } },
+  { "id": "math-10", "subject": "math", "statement": "Simplify: the square root of 144.", "expected": { "value": "12" } }
+]

@@ -113,6 +113,10 @@ async function main(): Promise<void> {
     `Pages: ${probeResult.pageCount} total (${textPages.length} text, ${probeResult.visionPageCount} vision)`,
   );
   console.log(`Chunks: ${chunks.length} text, ${finished.visionChunks.length} vision`);
+  if (finished.problems.length > 0) {
+    const verifiedCount = finished.problemResults.filter((r) => r.result.verified).length;
+    console.log(`Problems: ${finished.problemResults.length} solved (${verifiedCount} verified)`);
+  }
   console.log(`Tokens: ${finished.tokensUsed.input} in / ${finished.tokensUsed.output} out`);
   console.log(`Cost: $${(finished.costCents / 100).toFixed(4)}`);
   console.log(`Time: ${(elapsedMs / 1000).toFixed(1)}s`);

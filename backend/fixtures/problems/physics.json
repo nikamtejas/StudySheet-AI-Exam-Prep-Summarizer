@@ -1,0 +1,12 @@
+[
+  { "id": "physics-01", "subject": "physics", "statement": "A car starts from rest and accelerates at 2 m/s^2 for 5 seconds. Find its final velocity.", "expected": { "value": "10", "units": "m/s" } },
+  { "id": "physics-02", "subject": "physics", "statement": "A 2 kg object experiences a net force of 10 N. Find its acceleration.", "expected": { "value": "5", "units": "m/s^2" } },
+  { "id": "physics-03", "subject": "physics", "statement": "Find the kinetic energy of a 3 kg object moving at 4 m/s.", "expected": { "value": "24", "units": "J" } },
+  { "id": "physics-04", "subject": "physics", "statement": "A wave has frequency 50 Hz and wavelength 2 m. Find its speed.", "expected": { "value": "100", "units": "m/s" } },
+  { "id": "physics-05", "subject": "physics", "statement": "Find the period of a simple pendulum of length 1 m, given g = 9.8 m/s^2.", "expected": { "value": "2*pi*sqrt(1/9.8)", "units": "s" } },
+  { "id": "physics-06", "subject": "physics", "statement": "A 5 ohm resistor carries a current of 2 A. Find the voltage across it.", "expected": { "value": "10", "units": "V" } },
+  { "id": "physics-07", "subject": "physics", "statement": "An object falls from rest for 3 seconds under gravity (g = 9.8 m/s^2). Find its velocity.", "expected": { "value": "29.4", "units": "m/s" } },
+  { "id": "physics-08", "subject": "physics", "statement": "Find the momentum of a 1000 kg car moving at 20 m/s.", "expected": { "value": "20000", "units": "kg*m/s" } },
+  { "id": "physics-09", "subject": "physics", "statement": "Find the work done moving an object with a 10 N force through a distance of 5 m.", "expected": { "value": "50", "units": "J" } },
+  { "id": "physics-10", "subject": "physics", "statement": "Find the power dissipated by a 10 ohm resistor carrying a current of 2 A.", "expected": { "value": "40", "units": "W" } }
+]

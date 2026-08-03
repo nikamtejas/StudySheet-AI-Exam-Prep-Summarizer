@@ -1,0 +1,12 @@
+[
+  { "id": "biology-01", "subject": "biology", "statement": "In a monohybrid cross Aa x Aa, what fraction of offspring are expected to show the recessive phenotype?", "expected": { "value": "1/4" } },
+  { "id": "biology-02", "subject": "biology", "statement": "A population of 1000 individuals grows at 5% per year. Find the population after 1 year (nearest whole number).", "expected": { "value": "1050" } },
+  { "id": "biology-03", "subject": "biology", "statement": "DNA is 3.4 nm per 10 base pairs. What is the length, in nm, of a 100 base pair strand?", "expected": { "value": "34", "units": "nm" } },
+  { "id": "biology-04", "subject": "biology", "statement": "In a dihybrid cross AaBb x AaBb, what fraction of offspring are expected to show both recessive traits?", "expected": { "value": "1/16" } },
+  { "id": "biology-05", "subject": "biology", "statement": "A human somatic cell has 46 chromosomes. How many chromosomes are in a gamete produced by meiosis?", "expected": { "value": "23" } },
+  { "id": "biology-06", "subject": "biology", "statement": "A bacterial culture doubles every 20 minutes. Starting with 100 cells, how many cells are present after 1 hour?", "expected": { "value": "800" } },
+  { "id": "biology-07", "subject": "biology", "statement": "An enzyme's reaction rate has a Q10 of 2, meaning the rate doubles for every 10C rise. If the rate at 20C is 5 units, what is the rate at 30C?", "expected": { "value": "10" } },
+  { "id": "biology-08", "subject": "biology", "statement": "In a cross Aa x aa, what fraction of offspring are expected to be heterozygous (Aa)?", "expected": { "value": "1/2" } },
+  { "id": "biology-09", "subject": "biology", "statement": "A resting heart rate is 72 beats per minute. How many beats occur in 10 minutes?", "expected": { "value": "720" } },
+  { "id": "biology-10", "subject": "biology", "statement": "A rabbit population grows from 50 to 200 over 2 generations, doubling each generation. What is the growth multiplier per generation?", "expected": { "value": "2" } }
+]

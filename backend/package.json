@@ -24,6 +24,7 @@
     "sync:contracts": "node scripts/sync-contracts.mjs",
     "probe": "tsx src/cli/probe.ts",
     "summarize": "tsx src/cli/summarize.ts",
+    "eval:solve": "tsx src/cli/eval-solve.ts",
     "fixtures:generate": "node fixtures/generate.mjs"
   },
   "dependencies": {
@@ -36,6 +37,7 @@
     "express": "^4.21.2",
     "franc-min": "^6.2.0",
     "ioredis": "^5.4.2",
+    "mathjs": "^15.2.0",
     "mongoose": "^8.9.0",
     "pdfjs-dist": "^4.10.38",
     "pino": "^9.5.0",

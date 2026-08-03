@@ -1,0 +1,12 @@
+[
+  { "id": "cs-01", "subject": "cs", "statement": "What is 2 to the power of 10?", "expected": { "value": "1024" } },
+  { "id": "cs-02", "subject": "cs", "statement": "How many bits are needed to represent the decimal number 300 in binary?", "expected": { "value": "9" } },
+  { "id": "cs-03", "subject": "cs", "statement": "A sorted array has 1024 elements. What is the maximum number of comparisons binary search needs?", "expected": { "value": "10" } },
+  { "id": "cs-04", "subject": "cs", "statement": "What is the decimal value of the binary number 101101?", "expected": { "value": "45" } },
+  { "id": "cs-05", "subject": "cs", "statement": "A full binary tree has 15 total nodes. How many of them are leaf nodes?", "expected": { "value": "8" } },
+  { "id": "cs-06", "subject": "cs", "statement": "How many distinct permutations are there of the string AAB?", "expected": { "value": "3" } },
+  { "id": "cs-07", "subject": "cs", "statement": "What is 17 mod 5?", "expected": { "value": "2" } },
+  { "id": "cs-08", "subject": "cs", "statement": "Convert the hexadecimal number 0x2F to decimal.", "expected": { "value": "47" } },
+  { "id": "cs-09", "subject": "cs", "statement": "How many edges does a complete graph with 6 vertices have?", "expected": { "value": "15" } },
+  { "id": "cs-10", "subject": "cs", "statement": "A stack-based algorithm pushes 20 items onto an initially empty stack, then pops 8. How many items remain on the stack?", "expected": { "value": "12" } }
+]

@@ -1,5 +1,5 @@
 import { Schema, model, type HydratedDocument } from 'mongoose';
-import type { Section, Definition, ExamQuestion, Connection } from '../contracts';
+import type { Section, Definition, ExamQuestion, Connection, VerifiedProblem } from '../contracts';
 
 export interface SummaryAttrs {
   jobId: string;
@@ -7,6 +7,7 @@ export interface SummaryAttrs {
   sections: Section[];
   definitions: Definition[];
   examQuestions: ExamQuestion[];
+  problems: VerifiedProblem[];
   connections: Connection[];
   version: number;
   createdAt: Date;
@@ -80,6 +81,12 @@ const SummaryMongooseSchema = new Schema<SummaryAttrs>(
     sections: { type: [SectionMongooseSchema], default: [] },
     definitions: { type: [DefinitionMongooseSchema], default: [] },
     examQuestions: { type: [ExamQuestionMongooseSchema], default: [] },
+    // Already Zod-validated (VerifiedProblemSchema) before it reaches here —
+    // stored as one Mixed blob rather than re-encoding the discriminated
+    // VisualSpec union in Mongoose schema syntax, same pattern as
+    // Job.reduced. A bare (non-array) `Schema.Types.Mixed` is the form
+    // Mongoose's TS types accept for an array-shaped field like this one.
+    problems: { type: Schema.Types.Mixed, default: [] },
     connections: { type: [ConnectionMongooseSchema], default: [] },
     version: { type: Number, default: 1 },
   },
