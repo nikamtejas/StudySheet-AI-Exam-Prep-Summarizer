@@ -103,6 +103,37 @@ async function buildStress({ pages = 100 } = {}) {
   return buildTyped({ pages, title: 'Stress test document' });
 }
 
+// Distinct from buildTyped: a running header (identical every page), a
+// page-numbered footer, and genuinely unique body content per page — for
+// exercising pipeline/prepare.ts's header/footer stripping, which needs
+// content that varies per page to prove only the repeated lines get cut.
+async function buildLectureWithHeaderFooter({ pages = 5 } = {}) {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const topics = [
+    'the first law of thermodynamics states energy is conserved in a closed system',
+    'entropy always increases in an isolated system, which is the second law',
+    'a Carnot engine sets the theoretical upper bound on conversion efficiency',
+    'phase transitions release or absorb latent heat without a temperature change',
+    'the Gibbs free energy determines whether a reaction proceeds spontaneously',
+  ];
+  for (let i = 1; i <= pages; i++) {
+    const page = doc.addPage([612, 792]);
+    page.drawText('CS 301 — Thermodynamics', { x: 50, y: 750, size: 10, font: bold });
+    page.drawText(`Lecture ${i}: unique topic for this page`, { x: 50, y: 700, size: 14, font: bold });
+    const topic = topics[(i - 1) % topics.length];
+    page.drawText(`On page ${i} specifically, we cover: ${topic}.`, {
+      x: 50,
+      y: 660,
+      size: 11,
+      font,
+    });
+    page.drawText(`Page ${i} of ${pages}`, { x: 50, y: 40, size: 9, font });
+  }
+  return doc;
+}
+
 async function writePdf(doc, filename) {
   const bytes = await doc.save();
   fs.writeFileSync(path.join(OUT_DIR, filename), bytes);
@@ -117,6 +148,7 @@ async function main() {
   await writePdf(await buildZeroTextLayer(), 'zero-text-layer.pdf');
   await writePdf(await buildRotated(), 'rotated.pdf');
   await writePdf(await buildStress(), 'stress-100pages.pdf');
+  await writePdf(await buildLectureWithHeaderFooter(), 'lecture-with-header-footer.pdf');
 
   const typedPath = path.join(OUT_DIR, 'typed.pdf');
 

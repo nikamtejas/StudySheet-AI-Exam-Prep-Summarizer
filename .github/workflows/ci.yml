@@ -12,19 +12,17 @@ jobs:
     # Mongo + MinIO backing M1's ingest integration tests (test/ingest.test.ts).
     # Ports/credentials/bucket match .env.example exactly, so the checked-out
     # .env.example needs no per-job overrides — it already points here.
+    #
+    # MinIO runs as a plain `docker run` step, not a `services:` entry —
+    # GitHub Actions services can't override the container command, and
+    # MinIO's official image needs `server /data` passed explicitly (the
+    # bitnami image that used to work as a services entry without a command
+    # override was removed from Docker Hub's `latest` tag).
     services:
       mongo:
         image: mongo:7
         ports:
           - 27017:27017
-      minio:
-        image: bitnami/minio:latest
-        ports:
-          - 9000:9000
-        env:
-          MINIO_ROOT_USER: studysheet
-          MINIO_ROOT_PASSWORD: studysheet-dev
-          MINIO_DEFAULT_BUCKETS: studysheet-dev
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,6 +32,13 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install poppler-utils (pdftoppm — page rasterization)
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 -p 9001:9001 \
+            -e MINIO_ROOT_USER=studysheet \
+            -e MINIO_ROOT_PASSWORD=studysheet-dev \
+            minio/minio server /data --console-address ":9001"
       - name: Install dependencies
         working-directory: backend
         run: npm ci

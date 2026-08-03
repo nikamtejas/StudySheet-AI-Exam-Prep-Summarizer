@@ -31,7 +31,36 @@ rendering. Its Node canvas-rendering path hit two separate compatibility bugs (`
 broken glyph fill; `canvas`: broken image-XObject draw) during M1, so rasterization goes through
 poppler instead. Don't reintroduce `page.render()` on pdfjs-dist without re-verifying that.
 
-Next up: **M2 — The pipeline skeleton and the text path** (see docs/studysheet-milestones.md).
+**M2 — The pipeline skeleton and the text path: done.** Full text-path pipeline:
+`pipeline/extract.ts` (line/font reconstruction from pdfjs text items) → `pipeline/prepare.ts`
+(strips repeated headers/footers/page numbers by cross-page line repetition) →
+`pipeline/chunk.ts` (8–15 pages or ~15k estimated tokens, 1-page overlap, cuts early at a detected
+heading once the 8-page minimum is met) → `pipeline/map.ts` (one Sonnet 5 call per chunk, strict
+JSON) → `pipeline/reduce.ts` (dedup by normalized text, rank by mention count — pure, no AI call)
+→ `pipeline/synthesize.ts` (one Opus 4.8 call with adaptive thinking, produces the final sections/
+definitions/examQuestions). `pipeline/orchestrate.ts`'s `processJob()` drives all of this against
+a `Job` document (`src/models/Job.ts`) that persists every stage's output — chunk-by-chunk, saved
+after each one — so re-entering `processJob()` after a crash skips whatever's already recorded and
+never re-bills a completed chunk (proven in `test/orchestrate.test.ts` against real Mongo, not just
+mocked). `ai/client.ts` wraps the Anthropic SDK: model routing (`claude-haiku-4-5` /
+`claude-sonnet-5` / `claude-opus-4-8` — **not** "claude-opus-5", which the spec's illustrative text
+names but doesn't exist), structured outputs via `output_config.format` (JSON schema built with
+`zod-to-json-schema`, not the SDK's own `zodOutputFormat` helper — that needs zod v4, we're pinned
+to v3), a one-shot repair retry on validation failure, and real per-call cost accounting from
+`usage`. BullMQ wired end-to-end: `worker/queue.ts` + `worker/processors/summarize.ts` call the
+same `processJob()`. CLI: `npm run summarize -- <path> [--depth crash|balanced|deep]` — creates a
+`Job` directly at `stage: "chunking"` (skips the Document/storage round trip since the file's
+already local) and writes `<file>.summary.json`.
+
+**No Anthropic API key is configured yet** (user's choice at M2 kickoff — see memory). Every
+AI-touching code path is verified via mocked `@anthropic-ai/sdk` calls; the CLI itself was run for
+real and confirmed it fails cleanly (clear auth error, Job marked `failed` with the message, no
+partial billing, process exits promptly) rather than hanging or crashing. Once a key is added,
+the exact same code path should work — nothing else needs to change. If picking this up: add
+`ANTHROPIC_API_KEY` to `backend/.env` and run `npm run summarize -- fixtures/pdfs/typed.pdf` as
+the first real smoke test before trusting any cost numbers.
+
+Next up: **M3 — Vision path** (see docs/studysheet-milestones.md).
 
 Update this section when a milestone's gate passes, before starting the next one.
 
