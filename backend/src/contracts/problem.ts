@@ -10,11 +10,72 @@ export const StepSchema = z.object({
 });
 export type Step = z.infer<typeof StepSchema>;
 
-// Ten primitives, no more (docs/studysheet-build-prompt.md §4). Nested shapes
-// (geometry/flowchart/tree/grid internals) are deliberately loose here — M5
-// "Visual primitives" owns the renderer and tightens each kind's fields to
-// match what its React SVG component actually needs. M4's job is only to
-// constrain the model to one of these ten shapes via structured output.
+// Ten primitives, no more (docs/studysheet-build-prompt.md §4). Shared
+// building blocks for the nested shapes below — SVG coordinates, so a bare
+// [x, y] tuple in "diagram space" (each renderer picks its own viewBox/scale;
+// these are unitless design-space coordinates, not screen pixels).
+const PointSchema = z.tuple([z.number(), z.number()]);
+export type PointTuple = z.infer<typeof PointSchema>;
+
+const GeometryShapeSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('polygon'), points: z.array(PointSchema).min(3) }),
+  z.object({ type: z.literal('circle'), center: PointSchema, radius: z.number().positive() }),
+  z.object({ type: z.literal('segment'), from: PointSchema, to: PointSchema }),
+]);
+export type GeometryShape = z.infer<typeof GeometryShapeSchema>;
+
+const GeometryLabelSchema = z.object({ text: z.string(), at: PointSchema });
+const GeometryAngleSchema = z.object({
+  at: PointSchema,
+  from: PointSchema,
+  to: PointSchema,
+  label: z.string().optional(),
+});
+const GeometryCongruenceMarkSchema = z.object({
+  from: PointSchema,
+  to: PointSchema,
+  // Tick-mark count on the segment — the standard "these sides are equal"
+  // notation (1 tick = one equivalence class, 2 = another, etc.).
+  ticks: z.number().int().min(1).max(3).default(1),
+});
+
+const FlowchartNodeSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  shape: z.enum(['rect', 'diamond', 'oval']).default('rect'),
+});
+const FlowchartEdgeSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  label: z.string().optional(),
+});
+
+export interface TreeNode {
+  label: string;
+  children: TreeNode[];
+}
+// The input type (pre-`.default()`) has optional `children`, distinct from
+// the output type above — same input/output split that callStructured's
+// generic works around elsewhere in this codebase.
+interface TreeNodeInput {
+  label: string;
+  children?: TreeNodeInput[];
+}
+// Recursive — z.lazy() is required for self-reference. Confirmed this
+// produces a valid JSON Schema (a $ref back to itself) via zod-to-json-schema
+// and parses correctly with zod before relying on it for structured output.
+const TreeNodeSchema: z.ZodType<TreeNode, z.ZodTypeDef, TreeNodeInput> = z.lazy(() =>
+  z.object({
+    label: z.string(),
+    children: z.array(TreeNodeSchema).default([]),
+  }),
+);
+
+const CompareSideSchema = z.object({
+  title: z.string(),
+  points: z.array(z.string()),
+});
+
 export const VisualSpecSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('functionPlot'),
@@ -31,10 +92,10 @@ export const VisualSpecSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('geometry'),
-    shapes: z.array(z.unknown()).default([]),
-    labels: z.array(z.unknown()).default([]),
-    angles: z.array(z.unknown()).default([]),
-    congruenceMarks: z.array(z.unknown()).default([]),
+    shapes: z.array(GeometryShapeSchema).default([]),
+    labels: z.array(GeometryLabelSchema).default([]),
+    angles: z.array(GeometryAngleSchema).default([]),
+    congruenceMarks: z.array(GeometryCongruenceMarkSchema).default([]),
   }),
   z.object({
     kind: z.literal('vectorDiagram'),
@@ -49,17 +110,17 @@ export const VisualSpecSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('flowchart'),
-    nodes: z.array(z.unknown()).default([]),
-    edges: z.array(z.unknown()).default([]),
+    nodes: z.array(FlowchartNodeSchema).default([]),
+    edges: z.array(FlowchartEdgeSchema).default([]),
   }),
   z.object({
     kind: z.literal('tree'),
-    root: z.unknown(),
+    root: TreeNodeSchema,
   }),
   z.object({
     kind: z.literal('grid'),
-    rows: z.array(z.array(z.unknown())).default([]),
-    highlight: z.array(z.unknown()).default([]),
+    rows: z.array(z.array(z.string())).default([]),
+    highlight: z.array(z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])).default([]),
   }),
   z.object({
     kind: z.literal('timeline'),
@@ -67,12 +128,12 @@ export const VisualSpecSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('cycle'),
-    stages: z.array(z.unknown()).default([]),
+    stages: z.array(z.string()).default([]),
   }),
   z.object({
     kind: z.literal('compare'),
-    left: z.unknown(),
-    right: z.unknown(),
+    left: CompareSideSchema,
+    right: CompareSideSchema,
     axes: z.array(z.string()).default([]),
   }),
 ]);

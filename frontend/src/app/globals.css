@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+/* "Marker" palette — docs/studysheet-build-prompt.md §9. Only the color
+   tokens the visual primitives need land here in M5; the full type scale,
+   fonts, and app shell are M7's job ("Web app"). Amber/teal are reserved for
+   highlighting the thing being explained — never decorative. */
+@theme {
+  --color-ink: #0a0e1c;
+  --color-surface: #141a2e;
+  --color-edge: #253052;
+  --color-paper: #fbfaf6;
+  --color-amber: #ffc53d;
+  --color-teal: #3fe0ce;
+  --color-muted: #8791ae;
+}

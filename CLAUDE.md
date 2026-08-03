@@ -98,7 +98,7 @@ stage (`ChunkProblem[]`, already deduped) now get solved and independently verif
 full `SolvedProblemSchema` JSON from `contracts/problem.ts` — `given`/`goal`/`strategy`/`steps`
 (each with a **required** `why`)/`answer`/`check`/`commonMistake`/`memoryHook`, plus an optional
 `visual: VisualSpec`. `pipeline/verify.ts`'s `solveOne(problem)` is the verified, resumable entry
-point (also the standalone function M11's paste/photo single-problem flow will call directly):
+point (also the standalone function M7's paste/photo single-problem flow will call directly):
 it fires two independent `solve()` calls in parallel that never see each other's output, compares
 final answers with `answersAgree()` (numeric-aware — mathjs `evaluate()` so "1/2" and "0.5" agree;
 mathjs unit conversion so "5 m/s" and "18 km/h" agree; a genuine dimensional mismatch, e.g. "5 m"
@@ -140,7 +140,52 @@ crashing/hanging) with no key configured — same pattern as the M2/M3 CLI smoke
 this up: add `ANTHROPIC_API_KEY` and run `npm run eval:solve` as the real gate check before
 enabling any subject.
 
-Next up: **M5 — Visual primitives** (see docs/studysheet-milestones.md).
+**M5 — Visual primitives: done.** First milestone touching `frontend/`. All ten `VisualSpec` kinds
+from docs/studysheet-build-prompt.md §4 render as server-only React SVG components under
+`frontend/src/components/visuals/` (`FunctionPlot`, `NumberLine`, `Geometry`, `VectorDiagram`,
+`Flowchart`, `Tree`, `Grid`, `Timeline`, `Cycle`, `Compare`) — no `"use client"`, no hooks, no
+animation, so they render identically inside a Puppeteer print pass with zero hydration.
+`backend/src/contracts/problem.ts`'s `VisualSpecSchema` was tightened from M4's placeholder
+`z.unknown()` fields to real typed shapes (geometry shapes/labels/angles/congruence marks,
+flowchart nodes/edges, a recursive `TreeNode` via `z.lazy()`, grid rows/highlight cells, cycle
+stages, compare sides) and re-synced to frontend; confirmed `zod-to-json-schema` handles the
+recursive `z.lazy()` correctly (produces a `$ref`, doesn't throw) before relying on it for M4's
+`solve()` structured output.
+
+**Malformed input is caught by calling components as plain functions, not JSX.** `Visual.tsx`'s
+dispatcher (`FunctionPlot({ spec })`, not `<FunctionPlot spec={spec} />`) runs each component's
+body immediately inside a `try/catch` — JSX alone just builds a lazy element descriptor that
+React doesn't actually invoke until later, outside any surrounding `try/catch`, so this direct-call
+pattern is what makes "invalid spec → drop the visual, keep rendering everything else" actually
+work. `VisualSpecSchema.safeParse()` runs first as a second line of defense. Confirmed both layers
+work via `Visual.test.tsx` (unrecognized `kind`, `null`, and schema-valid-but-degenerate input like
+a zero-width `functionPlot` domain — all render nothing, never throw) and manually in a live
+browser (`/dev/gallery`'s "Malformed input" section).
+
+Arrows (`vectorDiagram`, `flowchart`, `cycle`) are drawn as inline computed polygons
+(`visuals/arrow.ts`), not SVG `<marker>` defs — marker `id`s are shared per-document, so two
+instances of the same component on one page (e.g. two flowcharts, or the gallery rendering
+everything at once) would collide on a static id.
+
+KaTeX server-rendering helper (`frontend/src/lib/katex.ts`, `renderInlineMath`/`renderDisplayMath`)
++ thin `<InlineMath>`/`<DisplayMath>` wrapper components (`frontend/src/components/Math.tsx`), both
+server-only. Minimal "Marker" palette color tokens (ink/surface/edge/paper/amber/teal/muted) added
+to `frontend/src/app/globals.css` via Tailwind v4's `@theme` block — **fonts, the type scale, and
+the rest of the app shell are deliberately not built yet**, that's M7 ("Web app"). The three-rung
+solve ladder (Worked/Guided/Practice) from §4's narrative text is still not built, same as M4 —
+still not listed as any milestone's deliverable.
+
+`/dev/gallery` (noindex via metadata, never linked from app nav) renders all ten primitives with
+sample data (`visuals/sampleSpecs.ts`, shared with the snapshot tests so both exercise identical
+data) in three presentations — normal, greyscale (`filter: grayscale(1)`, proving weight/dash carry
+meaning without color), and print (paper background) — plus the KaTeX helper and the
+malformed-input section. Manually verified in a real browser, not just asserted by tests.
+`Visual.test.tsx` snapshot-tests all ten via `react-dom/server`'s `renderToStaticMarkup` (no
+`@testing-library/react` needed for pure prop-in/markup-out server components) and asserts
+byte-identical output on repeat render — the prerequisite for M6's "same JSON in → byte-comparable
+PDF out" gate.
+
+Next up: **M6 — PDF renderer** (see docs/studysheet-milestones.md).
 
 Update this section when a milestone's gate passes, before starting the next one.
 
