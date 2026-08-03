@@ -9,6 +9,7 @@ function chunk(overrides: Partial<ChunkExtraction> = {}): ChunkExtraction {
     formulas: [],
     problems: [],
     pageRefs: [],
+    unreadablePages: [],
     ...overrides,
   };
 }
@@ -16,7 +17,14 @@ function chunk(overrides: Partial<ChunkExtraction> = {}): ChunkExtraction {
 describe('reduceChunks', () => {
   it('returns empty collections for no chunks', () => {
     const result = reduceChunks([]);
-    expect(result).toEqual({ definitions: [], keyPoints: [], formulas: [], problems: [], pageRefs: [] });
+    expect(result).toEqual({
+      definitions: [],
+      keyPoints: [],
+      formulas: [],
+      problems: [],
+      pageRefs: [],
+      unreadablePages: [],
+    });
   });
 
   it('dedupes definitions by normalized term and counts mentions across chunks', () => {
@@ -63,5 +71,13 @@ describe('reduceChunks', () => {
       chunk({ pageRefs: [2, 4] }),
     ]);
     expect(result.pageRefs).toEqual([1, 2, 3, 4]);
+  });
+
+  it('merges unreadable pages across chunks, deduped and sorted', () => {
+    const result = reduceChunks([
+      chunk({ unreadablePages: [5, 2] }),
+      chunk({ unreadablePages: [2, 8] }),
+    ]);
+    expect(result.unreadablePages).toEqual([2, 5, 8]);
   });
 });

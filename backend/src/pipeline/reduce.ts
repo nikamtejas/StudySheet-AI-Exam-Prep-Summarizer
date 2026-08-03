@@ -13,6 +13,9 @@ export interface ReducedContent {
   formulas: ChunkFormula[];
   problems: ChunkProblem[];
   pageRefs: number[];
+  // Pages no chunk could read at all — surfaced through synthesis as a
+  // visible gap rather than silently vanishing (reliability invariant 5).
+  unreadablePages: number[];
 }
 
 function normalizeKey(text: string): string {
@@ -59,6 +62,7 @@ export function reduceChunks(chunkResults: ChunkExtraction[]): ReducedContent {
   }
 
   const pageRefs = [...new Set(chunkResults.flatMap((c) => c.pageRefs))].sort((a, b) => a - b);
+  const unreadablePages = [...new Set(chunkResults.flatMap((c) => c.unreadablePages))].sort((a, b) => a - b);
 
   return {
     definitions: [...definitionsByTerm.values()].sort((a, b) => b.mentionCount - a.mentionCount),
@@ -66,5 +70,6 @@ export function reduceChunks(chunkResults: ChunkExtraction[]): ReducedContent {
     formulas: [...formulasByExpr.values()],
     problems: [...problemsByStatement.values()],
     pageRefs,
+    unreadablePages,
   };
 }

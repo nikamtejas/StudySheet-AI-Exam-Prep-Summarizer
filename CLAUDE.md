@@ -60,7 +60,39 @@ the exact same code path should work — nothing else needs to change. If pickin
 `ANTHROPIC_API_KEY` to `backend/.env` and run `npm run summarize -- fixtures/pdfs/typed.pdf` as
 the first real smoke test before trusting any cost numbers.
 
-Next up: **M3 — Vision path** (see docs/studysheet-milestones.md).
+**M3 — Vision path: done.** Handwritten/slides/mixed pages now go through the same pipeline as
+typed text. `ai/client.ts` generalized to a single `callStructured` that routes to
+`anthropic.beta.messages.create` (the Files API beta, `files-api-2025-04-14`) whenever the user
+content includes an image block, and to the plain GA `anthropic.messages.create` otherwise — the
+two request shapes are typed as separate branches (the GA `ImageBlockParam.source` type doesn't
+accept `{type:'file', file_id}`, only base64/URL, so one shared object across both calls doesn't
+typecheck). `uploadFile`/`deleteFile` wrap `anthropic.beta.files.upload/delete`; pages are always
+referenced by `file_id`, never re-sent as inline base64. `pipeline/chunkVision.ts` batches
+vision-eligible pages into ≤20-page groups (also capped on raw byte size as a safety margin) with
+no overlap — a 100+ page document just produces more batches. `pipeline/mapVision.ts` uploads each
+batch's pages, calls the model once per batch with `confidence: 'low'` on uncertain transcriptions
+and `unreadablePages` for illegible ones, then deletes the uploaded files in a `finally` (cleaned
+up even on failure). `pipeline/orchestrate.ts`'s mapping stage now runs two loops — text chunks,
+then vision chunks — over the *same* `chunkResults` array and the *same* already-done check;
+vision chunk indices are assigned to continue directly after the text chunk indices
+(`job.chunks.length + i`, see `models/Job.ts`), which is what lets one resumability mechanism cover
+both kinds without duplicated logic. `pipeline/synthesize.ts` surfaces `unreadablePages` in the
+page-map section so a gap is visible, never silently dropped. CLI: rasterizes and uploads
+vision-path pages to real storage locally (`cli-local/{fileHash}/pages/{n}.jpg`) before creating
+the Job, since the orchestrator always resolves vision buffers via `downloadObject(rasterKey)` —
+this is the one case where the CLI needs MinIO/R2 reachable even though the source PDF itself
+never round-trips through the `Document` model.
+
+Vision-path resumability (text chunk done + vision batch crashes mid-run, and vice versa) is
+covered in `test/orchestrate-vision.test.ts` against real Mongo, with a mocked Anthropic SDK and a
+mocked `downloadObject` — same "mock-tested only" pattern as M2, no API key required. That file and
+`test/orchestrate.test.ts` intentionally use disjoint `userId` prefixes (`test-text-orch-` /
+`test-vision-orch-`) for their `afterAll` cleanup regexes: vitest runs test files in parallel
+worker processes against the same real database, and a shared broad prefix (`test-*`) let one
+file's cleanup delete another file's still-in-flight job, surfacing as a Mongoose `VersionError`.
+If adding another real-Mongo test file, give it its own disjoint prefix too.
+
+Next up: **M4 — Solve and verify** (see docs/studysheet-milestones.md).
 
 Update this section when a milestone's gate passes, before starting the next one.
 

@@ -2,18 +2,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { z } from 'zod';
 
 const mockCreate = vi.fn();
+const mockBetaCreate = vi.fn();
+const mockFilesUpload = vi.fn();
+const mockFilesDelete = vi.fn();
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: vi.fn().mockImplementation(() => ({
     messages: { create: mockCreate },
+    beta: {
+      messages: { create: mockBetaCreate },
+      files: { upload: mockFilesUpload, delete: mockFilesDelete },
+    },
   })),
+  toFile: vi.fn().mockImplementation(async (buffer: Buffer, filename: string) => ({ buffer, filename })),
 }));
 
 vi.mock('../src/config/env', () => ({
   env: { ANTHROPIC_API_KEY: 'test-key' },
 }));
 
-import { costCents, callStructured } from '../src/ai/client';
+import { costCents, callStructured, uploadFile, deleteFile } from '../src/ai/client';
 
 const schema = z.object({ term: z.string(), definition: z.string() });
 
@@ -78,10 +86,12 @@ describe('callStructured', () => {
     expect(mockCreate).toHaveBeenCalledTimes(2);
 
     // Second call's prompt must include the validation error, per the
-    // reliability invariant (docs/studysheet-milestones.md #4).
+    // reliability invariant (docs/studysheet-milestones.md #4). Message
+    // content is always a block array (text and/or image-by-file_id blocks).
     const secondCallArgs = mockCreate.mock.calls[1]?.[0];
-    const secondUserMessage = secondCallArgs.messages[0].content as string;
-    expect(secondUserMessage).toContain('failed validation');
+    const secondContentBlocks = secondCallArgs.messages[0].content as Array<{ type: string; text?: string }>;
+    const combinedText = secondContentBlocks.map((b) => b.text ?? '').join('\n');
+    expect(combinedText).toContain('failed validation');
   });
 
   it('throws after the repair retry also fails validation', async () => {
@@ -111,5 +121,76 @@ describe('callStructured', () => {
 
     expect(result.repaired).toBe(true);
     expect(result.data.term).toBe('Entropy');
+  });
+});
+
+describe('vision path (Files API)', () => {
+  beforeEach(() => {
+    mockCreate.mockReset();
+    mockBetaCreate.mockReset();
+    mockFilesUpload.mockReset();
+    mockFilesDelete.mockReset();
+  });
+
+  it('uploadFile calls the beta Files API and returns the file id', async () => {
+    mockFilesUpload.mockResolvedValueOnce({ id: 'file_abc123' });
+
+    const fileId = await uploadFile(Buffer.from('fake jpeg bytes'), 'page-1.jpg', 'image/jpeg');
+
+    expect(fileId).toBe('file_abc123');
+    expect(mockFilesUpload).toHaveBeenCalledTimes(1);
+    const uploadArgs = mockFilesUpload.mock.calls[0]?.[0];
+    expect(uploadArgs.betas).toEqual(['files-api-2025-04-14']);
+  });
+
+  it('deleteFile calls the beta Files API delete endpoint', async () => {
+    mockFilesDelete.mockResolvedValueOnce({ id: 'file_abc123', type: 'file_deleted' });
+    await deleteFile('file_abc123');
+    expect(mockFilesDelete).toHaveBeenCalledWith('file_abc123', { betas: ['files-api-2025-04-14'] });
+  });
+
+  it('routes image-block requests to the beta endpoint with the Files API header, not the GA endpoint', async () => {
+    mockBetaCreate.mockResolvedValueOnce(textResponse({ term: 'Entropy', definition: 'From an image.' }));
+
+    const result = await callStructured({
+      model: 'sonnet',
+      system: 'sys',
+      userContent: [
+        { type: 'text', text: 'Read this page:' },
+        { type: 'image', fileId: 'file_abc123' },
+      ],
+      schema,
+    });
+
+    expect(result.data).toEqual({ term: 'Entropy', definition: 'From an image.' });
+    expect(mockBetaCreate).toHaveBeenCalledTimes(1);
+    expect(mockCreate).not.toHaveBeenCalled();
+
+    const call = mockBetaCreate.mock.calls[0]?.[0];
+    expect(call.betas).toEqual(['files-api-2025-04-14']);
+    const content = call.messages[0].content as Array<{ type: string; source?: { file_id: string } }>;
+    expect(content[1]).toEqual({ type: 'image', source: { type: 'file', file_id: 'file_abc123' } });
+  });
+
+  it('repair retry on a vision call reuses the same file_id rather than re-uploading', async () => {
+    mockBetaCreate
+      .mockResolvedValueOnce(textResponse({ term: 'Entropy' })) // missing definition — fails
+      .mockResolvedValueOnce(textResponse({ term: 'Entropy', definition: 'Fixed.' }));
+
+    const result = await callStructured({
+      model: 'sonnet',
+      system: 'sys',
+      userContent: [{ type: 'image', fileId: 'file_abc123' }],
+      schema,
+    });
+
+    expect(result.repaired).toBe(true);
+    expect(mockBetaCreate).toHaveBeenCalledTimes(2);
+    // No upload calls happen inside callStructured at all — the caller
+    // uploads once, up front, and passes the file_id in on every attempt.
+    expect(mockFilesUpload).not.toHaveBeenCalled();
+    const secondCall = mockBetaCreate.mock.calls[1]?.[0];
+    const secondContent = secondCall.messages[0].content as Array<{ type: string; source?: { file_id: string } }>;
+    expect(secondContent[0]).toEqual({ type: 'image', source: { type: 'file', file_id: 'file_abc123' } });
   });
 });

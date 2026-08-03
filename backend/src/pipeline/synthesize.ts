@@ -21,7 +21,7 @@ Produce these sections (type / title / body / highlights):
 - "core-concepts": short paragraphs built from the key points provided, each with one bolded takeaway line. Mark the takeaway as a highlight with kind "exam-critical".
 - "formulas": only if formulas were provided — list each with a one-line plain-language explanation. Omit this section entirely if no formulas were provided.
 - "common-confusions": pairs of terms or ideas students mix up, only if genuinely evident from the definitions. Omit this section if nothing is confusable.
-- "page-map": one line describing the page range covered, e.g. "Covered: pp. 4-17".
+- "page-map": one line describing the page range covered, e.g. "Covered: pp. 4-17". If any pages could not be read at all (listed below as UNREADABLE PAGES), say so plainly here — e.g. "Pages 12, 15 could not be read (poor scan quality) and are not covered." Never omit this if unreadable pages were provided; never guess at their content.
 Do not produce an "exam-questions" section — those go in the separate examQuestions field below, not in sections.
 
 Also produce:
@@ -57,6 +57,10 @@ function buildUserContent(reduced: ReducedContent, depth: Depth): string {
   lines.push('PROBLEMS FOUND (for context only — do not solve them here):');
   for (const problem of reduced.problems) {
     lines.push(`- [p.${problem.pageRef}] ${problem.statement}`);
+  }
+  if (reduced.unreadablePages.length > 0) {
+    lines.push('');
+    lines.push(`UNREADABLE PAGES (could not be transcribed): ${reduced.unreadablePages.join(', ')}`);
   }
   return lines.join('\n');
 }

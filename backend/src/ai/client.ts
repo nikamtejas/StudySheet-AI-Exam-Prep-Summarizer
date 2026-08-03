@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic, { toFile } from '@anthropic-ai/sdk';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { z } from 'zod';
 import { env } from '../config/env';
@@ -50,6 +50,23 @@ export function costCents(model: ModelKey, usage: TokenUsage): number {
   return dollars * 100;
 }
 
+const FILES_API_BETA = 'files-api-2025-04-14';
+
+// Uploads a buffer (a rasterized page JPEG, for the vision path) once so it
+// can be referenced by file_id across both the first attempt and the repair
+// retry, instead of re-sending base64 — docs/studysheet-milestones.md M3.
+export async function uploadFile(buffer: Buffer, filename: string, mimeType: string): Promise<string> {
+  const anthropic = getAnthropicClient();
+  const file = await toFile(buffer, filename, { type: mimeType });
+  const uploaded = await anthropic.beta.files.upload({ file, betas: [FILES_API_BETA] });
+  return uploaded.id;
+}
+
+export async function deleteFile(fileId: string): Promise<void> {
+  const anthropic = getAnthropicClient();
+  await anthropic.beta.files.delete(fileId, { betas: [FILES_API_BETA] });
+}
+
 // zod-to-json-schema emits a `$schema` meta key that the Messages API's
 // structured-output schema doesn't expect as a sibling of `type`/`properties`.
 function toApiJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
@@ -71,10 +88,22 @@ function safeParseJson(text: string): { ok: true; value: unknown } | { ok: false
   }
 }
 
+// What a caller can put in a user turn. Images are always referenced by
+// Files API file_id (never inline base64) — see uploadFile() above.
+export type UserContentBlock = { type: 'text'; text: string } | { type: 'image'; fileId: string };
+
+function toApiContentBlocks(
+  blocks: UserContentBlock[],
+): Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'file'; file_id: string } }> {
+  return blocks.map((block) =>
+    block.type === 'text' ? block : { type: 'image', source: { type: 'file', file_id: block.fileId } },
+  );
+}
+
 export interface StructuredCallParams<S extends z.ZodTypeAny> {
   model: ModelKey;
   system: string;
-  userContent: string;
+  userContent: string | UserContentBlock[];
   schema: S;
   maxTokens?: number;
   // Adaptive thinking. Only Sonnet 5 / Opus 4.8 support it — never set this
@@ -105,28 +134,60 @@ export async function callStructured<S extends z.ZodTypeAny>(
   const anthropic = getAnthropicClient();
   const jsonSchema = toApiJsonSchema(schema);
 
-  async function attempt(userText: string): Promise<{ text: string; usage: TokenUsage }> {
-    const response = await anthropic.messages.create({
-      model: MODELS[model],
-      max_tokens: maxTokens,
-      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-      output_config: { format: { type: 'json_schema', schema: jsonSchema } },
-      ...(thinking ? { thinking: { type: 'adaptive' as const } } : {}),
-      messages: [{ role: 'user', content: userText }],
-    });
-    const textBlock = response.content.find(
-      (block): block is Anthropic.TextBlock => block.type === 'text',
-    );
-    return {
-      text: textBlock?.text ?? '',
-      usage: {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-      },
-    };
+  const baseBlocks: UserContentBlock[] =
+    typeof userContent === 'string' ? [{ type: 'text', text: userContent }] : userContent;
+
+  async function attempt(blocks: UserContentBlock[]): Promise<{ text: string; usage: TokenUsage }> {
+    const hasImages = blocks.some((block) => block.type === 'image');
+    const systemBlocks = [
+      { type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } },
+    ];
+    const outputConfig = { format: { type: 'json_schema' as const, schema: jsonSchema } };
+    const thinkingConfig = thinking ? { thinking: { type: 'adaptive' as const } } : {};
+
+    // Only the vision path needs the beta endpoint — file_id image
+    // references aren't representable in the GA endpoint's narrower content
+    // block type, hence two separate calls rather than one shared object
+    // (the GA and beta content-block types don't unify). Plain text calls
+    // stay on the GA endpoint, unchanged from M2.
+    let text: string;
+    let usage: TokenUsage;
+    if (hasImages) {
+      const response = await anthropic.beta.messages.create({
+        model: MODELS[model],
+        max_tokens: maxTokens,
+        system: systemBlocks,
+        output_config: outputConfig,
+        ...thinkingConfig,
+        betas: [FILES_API_BETA],
+        messages: [{ role: 'user', content: toApiContentBlocks(blocks) }],
+      });
+      const textBlock = response.content.find((block) => block.type === 'text');
+      text = textBlock && 'text' in textBlock ? textBlock.text : '';
+      usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens };
+    } else {
+      const textOnly = blocks.filter(
+        (block): block is Extract<UserContentBlock, { type: 'text' }> => block.type === 'text',
+      );
+      const response = await anthropic.messages.create({
+        model: MODELS[model],
+        max_tokens: maxTokens,
+        system: systemBlocks,
+        output_config: outputConfig,
+        ...thinkingConfig,
+        messages: [{ role: 'user', content: textOnly.map((block) => ({ type: 'text', text: block.text })) }],
+      });
+      const textBlock = response.content.find(
+        (block): block is Anthropic.TextBlock => block.type === 'text',
+      );
+      text = textBlock?.text ?? '';
+      usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens };
+    }
+
+    return { text, usage };
   }
 
-  const first = await attempt(userContent);
+  const first = await attempt(baseBlocks);
   const firstJson = safeParseJson(first.text);
   const firstResult = firstJson.ok ? schema.safeParse(firstJson.value) : null;
 
@@ -137,9 +198,15 @@ export async function callStructured<S extends z.ZodTypeAny>(
   const errorDetail = firstJson.ok
     ? JSON.stringify(firstResult?.error.issues ?? [])
     : `Response was not valid JSON: ${firstJson.error}`;
-  const repairPrompt = `${userContent}\n\nYour previous response failed validation against the required schema:\n${errorDetail}\n\nReturn corrected JSON only, matching the schema exactly.`;
+  const repairBlocks: UserContentBlock[] = [
+    ...baseBlocks,
+    {
+      type: 'text',
+      text: `Your previous response failed validation against the required schema:\n${errorDetail}\n\nReturn corrected JSON only, matching the schema exactly.`,
+    },
+  ];
 
-  const second = await attempt(repairPrompt);
+  const second = await attempt(repairBlocks);
   const secondJson = safeParseJson(second.text);
   const secondResult = secondJson.ok ? schema.safeParse(secondJson.value) : null;
 

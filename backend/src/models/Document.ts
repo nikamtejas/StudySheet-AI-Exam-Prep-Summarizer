@@ -27,6 +27,7 @@ const DetectedPageSchema = new Schema<DetectedPage>(
     lang: { type: String, default: null },
     path: { type: String, enum: ['text', 'vision'] satisfies PagePath[], required: true },
     rasterKey: { type: String, default: null },
+    rasterSizeBytes: { type: Number, default: null },
   },
   { _id: false },
 );

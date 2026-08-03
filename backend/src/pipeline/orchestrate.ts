@@ -5,7 +5,9 @@ import { downloadObject } from '../lib/storage';
 import { logger } from '../lib/logger';
 import { prepareText } from './prepare';
 import { chunkPages } from './chunk';
+import { chunkVisionPages } from './chunkVision';
 import { mapChunk } from './map';
+import { mapVisionBatch } from './mapVision';
 import { reduceChunks } from './reduce';
 import { synthesize } from './synthesize';
 
@@ -38,6 +40,9 @@ export async function processJob(jobId: string): Promise<void> {
       const buffer = await downloadObject(doc.r2Key);
       const textPages = doc.detectedPerPage.filter((p) => p.path === 'text').map((p) => p.page);
       job.preparedPages = await prepareText(buffer, doc.filename, textPages);
+      job.visionPages = doc.detectedPerPage
+        .filter((p) => p.path === 'vision' && p.rasterKey && p.rasterSizeBytes !== null)
+        .map((p) => ({ page: p.page, rasterKey: p.rasterKey as string, sizeBytes: p.rasterSizeBytes as number }));
       job.stage = 'chunking';
       await job.save();
     }
@@ -45,18 +50,30 @@ export async function processJob(jobId: string): Promise<void> {
     if (job.stage === 'chunking') {
       log.info('stage: chunking');
       job.chunks = chunkPages(job.preparedPages);
+
+      const rasterKeyByPage = new Map(job.visionPages.map((p) => [p.page, p.rasterKey]));
+      const visionBatches = chunkVisionPages(
+        job.visionPages.map((p) => ({ page: p.page, sizeBytes: p.sizeBytes })),
+      );
+      job.visionChunks = visionBatches.map((batch, i) => ({
+        index: job.chunks.length + i,
+        pages: batch.pages,
+        rasterKeys: batch.pages.map((p) => rasterKeyByPage.get(p) ?? ''),
+      }));
+
       job.stage = 'mapping';
       await job.save();
     }
 
     if (job.stage === 'mapping') {
       const alreadyDone = new Set(job.chunkResults.map((r) => r.chunkIndex));
+
       for (const chunk of job.chunks) {
         if (alreadyDone.has(chunk.index)) {
-          log.info({ chunkIndex: chunk.index }, 'stage: mapping — chunk already done, skipping');
+          log.info({ chunkIndex: chunk.index }, 'stage: mapping — text chunk already done, skipping');
           continue;
         }
-        log.info({ chunkIndex: chunk.index, of: job.chunks.length }, 'stage: mapping chunk');
+        log.info({ chunkIndex: chunk.index, of: job.chunks.length }, 'stage: mapping text chunk');
         const result = await mapChunk(chunk);
         job.chunkResults.push({
           chunkIndex: chunk.index,
@@ -72,6 +89,36 @@ export async function processJob(jobId: string): Promise<void> {
         // most the one in-flight call, never a completed one.
         await job.save();
       }
+
+      for (const visionChunk of job.visionChunks) {
+        if (alreadyDone.has(visionChunk.index)) {
+          log.info({ chunkIndex: visionChunk.index }, 'stage: mapping — vision batch already done, skipping');
+          continue;
+        }
+        log.info(
+          { chunkIndex: visionChunk.index, pages: visionChunk.pages.length },
+          'stage: mapping vision batch',
+        );
+        const images = await Promise.all(
+          visionChunk.pages.map(async (page, i) => ({
+            page,
+            jpegBuffer: await downloadObject(visionChunk.rasterKeys[i] as string),
+          })),
+        );
+        const result = await mapVisionBatch(images);
+        job.chunkResults.push({
+          chunkIndex: visionChunk.index,
+          result: result.data,
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          costCents: result.costCents,
+        });
+        job.tokensUsed.input += result.usage.inputTokens;
+        job.tokensUsed.output += result.usage.outputTokens;
+        job.costCents += result.costCents;
+        await job.save();
+      }
+
       job.stage = 'reducing';
       await job.save();
     }

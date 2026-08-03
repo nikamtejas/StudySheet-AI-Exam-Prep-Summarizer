@@ -87,7 +87,10 @@ export async function ingestDocument(params: IngestParams): Promise<IngestResult
       const rasterKey = `documents/${fileHash}/pages/${page}.jpg`;
       await uploadObject(rasterKey, jpegBuffer, 'image/jpeg');
       const entry = byPage.get(page);
-      if (entry) entry.rasterKey = rasterKey;
+      if (entry) {
+        entry.rasterKey = rasterKey;
+        entry.rasterSizeBytes = jpegBuffer.byteLength;
+      }
     }
   }
 

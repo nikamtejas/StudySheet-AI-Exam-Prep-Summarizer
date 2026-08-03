@@ -3,7 +3,18 @@ import type { JobStage, JobStatus, Depth } from '../contracts';
 import type { ChunkExtraction } from '../pipeline/map';
 import type { PreparedPage } from '../pipeline/prepare';
 import type { Chunk } from '../pipeline/chunk';
+import type { VisionChunk } from '../pipeline/chunkVision';
 import type { ReducedContent } from '../pipeline/reduce';
+
+// A vision-eligible page not yet batched — the raw input to
+// pipeline/chunkVision.ts's chunkVisionPages(). Populated during the
+// "queued" stage for a Document-backed job, or directly by the CLI for a
+// local-file run (which still needs real storage keys — see cli/summarize.ts).
+export interface VisionPageRecord {
+  page: number;
+  rasterKey: string;
+  sizeBytes: number;
+}
 
 export interface ChunkResultRecord {
   chunkIndex: number;
@@ -28,6 +39,12 @@ export interface JobAttrs {
   // reliability invariants 1/2/6.
   preparedPages: PreparedPage[];
   chunks: Chunk[];
+  // Vision-path (M3): raw eligible pages, batched into visionChunks during
+  // the "chunking" stage. visionChunks' indices continue directly after
+  // `chunks`, so the same chunkResults array and skip-if-already-done logic
+  // in pipeline/orchestrate.ts work unchanged for both kinds.
+  visionPages: VisionPageRecord[];
+  visionChunks: VisionChunk[];
   chunkResults: ChunkResultRecord[];
   reduced: ReducedContent | null;
   tokensUsed: { input: number; output: number };
@@ -72,6 +89,24 @@ const PreparedPageMongooseSchema = new Schema<PreparedPage>(
   { _id: false },
 );
 
+const VisionPageMongooseSchema = new Schema<VisionPageRecord>(
+  {
+    page: { type: Number, required: true },
+    rasterKey: { type: String, required: true },
+    sizeBytes: { type: Number, required: true },
+  },
+  { _id: false },
+);
+
+const VisionChunkMongooseSchema = new Schema<VisionChunk>(
+  {
+    index: { type: Number, required: true },
+    pages: { type: [Number], required: true },
+    rasterKeys: { type: [String], required: true },
+  },
+  { _id: false },
+);
+
 const JobMongooseSchema = new Schema<JobAttrs>(
   {
     userId: { type: String, required: true },
@@ -92,6 +127,8 @@ const JobMongooseSchema = new Schema<JobAttrs>(
     },
     preparedPages: { type: [PreparedPageMongooseSchema], default: [] },
     chunks: { type: [ChunkMongooseSchema], default: [] },
+    visionPages: { type: [VisionPageMongooseSchema], default: [] },
+    visionChunks: { type: [VisionChunkMongooseSchema], default: [] },
     chunkResults: { type: [ChunkResultMongooseSchema], default: [] },
     reduced: { type: Schema.Types.Mixed, default: null },
     tokensUsed: {

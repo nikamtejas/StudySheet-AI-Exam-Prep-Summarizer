@@ -2,16 +2,22 @@ import { z } from 'zod';
 import { callStructured } from '../ai/client';
 import type { Chunk } from './chunk';
 
+// confidence is optional and text-path chunks omit it entirely (extracted
+// text is authoritative) — only the vision path sets it, and only to 'low'
+// when a reading is uncertain (docs/studysheet-milestones.md M3: "the model
+// marks uncertain readings, which persist as confidence: 'low'").
 export const ChunkDefinitionSchema = z.object({
   term: z.string(),
   definition: z.string(),
   pageRef: z.number().int().positive(),
+  confidence: z.enum(['high', 'low']).optional(),
 });
 export type ChunkDefinition = z.infer<typeof ChunkDefinitionSchema>;
 
 export const ChunkKeyPointSchema = z.object({
   text: z.string(),
   pageRef: z.number().int().positive(),
+  confidence: z.enum(['high', 'low']).optional(),
 });
 export type ChunkKeyPoint = z.infer<typeof ChunkKeyPointSchema>;
 
@@ -37,6 +43,10 @@ export const ChunkExtractionSchema = z.object({
   formulas: z.array(ChunkFormulaSchema),
   problems: z.array(ChunkProblemSchema),
   pageRefs: z.array(z.number().int().positive()),
+  // Pages that genuinely couldn't be read (illegible scan, not a specific
+  // extraction category) — always empty for the text path. Surfaced later
+  // as a visible gap rather than a silent drop (reliability invariant 5).
+  unreadablePages: z.array(z.number().int().positive()).default([]),
 });
 export type ChunkExtraction = z.infer<typeof ChunkExtractionSchema>;
 

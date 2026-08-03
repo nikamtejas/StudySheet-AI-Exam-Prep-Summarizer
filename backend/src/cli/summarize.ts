@@ -6,8 +6,10 @@ import { validateFileBasics } from '../pipeline/validate';
 import { probeDocument } from '../pipeline/probe';
 import { prepareText } from '../pipeline/prepare';
 import { chunkPages } from '../pipeline/chunk';
+import { rasterizePages } from '../pipeline/rasterize';
+import { uploadObject } from '../lib/storage';
 import { processJob } from '../pipeline/orchestrate';
-import { JobModel } from '../models/Job';
+import { JobModel, type VisionPageRecord } from '../models/Job';
 import { SummaryModel } from '../models/Summary';
 import type { Depth } from '../contracts';
 
@@ -24,12 +26,17 @@ function parseArgs(argv: string[]): { filePath: string; depth: Depth } {
   return { filePath, depth };
 }
 
-// CLI, per docs/studysheet-milestones.md M2: runs the text-path pipeline
-// against a local file and prints cost — no HTTP API, no BullMQ. It still
-// goes through the same Job model + processJob() as the real worker (so it
-// exercises the identical resumable code path), but skips the Document/
-// storage round trip since the file is already on disk: the Job is created
-// directly at stage "chunking" with preparedPages already filled in.
+// CLI, per docs/studysheet-milestones.md M2/M3: runs the full pipeline
+// (text and/or vision path) against a local file and prints cost — no HTTP
+// API, no BullMQ. It still goes through the same Job model + processJob() as
+// the real worker (so it exercises the identical resumable code path), but
+// skips the Document/storage round trip for the source PDF itself since the
+// file is already on disk: the Job is created directly at stage "chunking"
+// with preparedPages already filled in. Vision-path pages are the exception —
+// the orchestrator's mapping stage universally resolves vision buffers via
+// downloadObject(rasterKey), so a document with vision pages still needs
+// local pages rasterized and uploaded to real storage (MinIO/R2) to get a
+// rasterKey, even though the source PDF never round-trips through Document.
 async function main(): Promise<void> {
   const { filePath, depth } = parseArgs(process.argv.slice(2));
   const filename = path.basename(filePath);
@@ -41,16 +48,37 @@ async function main(): Promise<void> {
   validateFileBasics(buffer, filename);
   const probeResult = await probeDocument(buffer, filename);
   const textPages = probeResult.detectedPerPage.filter((p) => p.path === 'text').map((p) => p.page);
+  const visionPageNumbers = probeResult.detectedPerPage
+    .filter((p) => p.path === 'vision')
+    .map((p) => p.page);
 
-  if (textPages.length === 0) {
-    throw new Error(
-      `"${filename}" has no text-path pages. This CLI covers M2's text path only — vision-path summarization arrives in M3.`,
-    );
+  if (textPages.length === 0 && visionPageNumbers.length === 0) {
+    throw new Error(`"${filename}" has no readable pages.`);
   }
 
   const preparedPages = await prepareText(buffer, filename, textPages);
   const chunks = chunkPages(preparedPages);
   const fileHash = createHash('sha256').update(buffer).digest('hex');
+
+  let visionPages: VisionPageRecord[] = [];
+  if (visionPageNumbers.length > 0) {
+    console.log(`Rasterizing ${visionPageNumbers.length} vision-path page(s)...`);
+    const rasterized = await rasterizePages(buffer, visionPageNumbers);
+    try {
+      visionPages = await Promise.all(
+        rasterized.map(async ({ page, jpegBuffer }) => {
+          const rasterKey = `cli-local/${fileHash}/pages/${page}.jpg`;
+          await uploadObject(rasterKey, jpegBuffer, 'image/jpeg');
+          return { page, rasterKey, sizeBytes: jpegBuffer.byteLength };
+        }),
+      );
+    } catch (err) {
+      throw new Error(
+        `"${filename}" has vision-path pages, which require object storage (MinIO/R2) to be reachable — ` +
+          `is it running? (${(err as Error).message})`,
+      );
+    }
+  }
 
   await getMongoConnection();
   const job = await JobModel.create({
@@ -61,6 +89,7 @@ async function main(): Promise<void> {
     config: { depth },
     preparedPages,
     chunks,
+    visionPages,
     chunkResults: [],
     tokensUsed: { input: 0, output: 0 },
     costCents: 0,
@@ -81,9 +110,9 @@ async function main(): Promise<void> {
 
   console.log(`\nWrote ${outPath}`);
   console.log(
-    `Pages: ${probeResult.pageCount} total (${textPages.length} text, ${probeResult.visionPageCount} vision — skipped, M3)`,
+    `Pages: ${probeResult.pageCount} total (${textPages.length} text, ${probeResult.visionPageCount} vision)`,
   );
-  console.log(`Chunks: ${chunks.length}`);
+  console.log(`Chunks: ${chunks.length} text, ${finished.visionChunks.length} vision`);
   console.log(`Tokens: ${finished.tokensUsed.input} in / ${finished.tokensUsed.output} out`);
   console.log(`Cost: $${(finished.costCents / 100).toFixed(4)}`);
   console.log(`Time: ${(elapsedMs / 1000).toFixed(1)}s`);

@@ -48,6 +48,7 @@ export async function probeDocument(buffer: Buffer, filename: string): Promise<P
         lang: hasTextLayer ? await detectLanguage(text) : null,
         path: hasTextLayer ? 'text' : 'vision',
         rasterKey: null,
+        rasterSizeBytes: null,
       });
     } finally {
       page.cleanup();

@@ -39,10 +39,16 @@ beforeAll(async () => {
   }
 }, 10000);
 
+// Prefix is disjoint from other real-Mongo test files (e.g.
+// orchestrate-vision.test.ts) so a broad afterAll cleanup here can never
+// race with — and delete — another file's in-flight job when vitest runs
+// files in parallel worker processes against the same database.
+const TEST_USER_PREFIX = 'test-text-orch-';
+
 afterAll(async () => {
   if (infraAvailable) {
-    await JobModel.deleteMany({ userId: { $regex: /^test-/ } });
-    await SummaryModel.deleteMany({ userId: { $regex: /^test-/ } });
+    await JobModel.deleteMany({ userId: { $regex: new RegExp(`^${TEST_USER_PREFIX}`) } });
+    await SummaryModel.deleteMany({ userId: { $regex: new RegExp(`^${TEST_USER_PREFIX}`) } });
   }
 });
 
@@ -71,7 +77,7 @@ describe('processJob resumability', () => {
     if (!infraAvailable) return;
 
     const job = await JobModel.create({
-      userId: `test-${randomUUID()}`,
+      userId: `${TEST_USER_PREFIX}${randomUUID()}`,
       documentIds: ['unused-in-this-test'],
       status: 'active',
       stage: 'mapping',
@@ -109,7 +115,7 @@ describe('processJob resumability', () => {
     if (!infraAvailable) return;
 
     const job = await JobModel.create({
-      userId: `test-${randomUUID()}`,
+      userId: `${TEST_USER_PREFIX}${randomUUID()}`,
       documentIds: ['unused-in-this-test'],
       status: 'queued',
       stage: 'mapping',

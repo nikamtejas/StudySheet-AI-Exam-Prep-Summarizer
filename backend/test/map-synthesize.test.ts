@@ -44,7 +44,14 @@ describe('model routing', () => {
   it('synthesize calls Opus 4.8 with adaptive thinking enabled', async () => {
     mockCreate.mockResolvedValueOnce(textResponse({ sections: [], definitions: [], examQuestions: [] }));
 
-    const reduced: ReducedContent = { definitions: [], keyPoints: [], formulas: [], problems: [], pageRefs: [] };
+    const reduced: ReducedContent = {
+      definitions: [],
+      keyPoints: [],
+      formulas: [],
+      problems: [],
+      pageRefs: [],
+      unreadablePages: [],
+    };
     await synthesize(reduced, 'balanced');
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
