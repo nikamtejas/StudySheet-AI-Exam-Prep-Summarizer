@@ -7,6 +7,8 @@ import { requestId } from './middleware/requestId';
 import { healthRouter } from './routes/health';
 import { uploadsRouter } from './routes/uploads';
 import { documentsRouter } from './routes/documents';
+import { renderRouter } from './routes/render';
+import { summariesRouter } from './routes/summaries';
 
 export function createApp(): Express {
   const app = express();
@@ -25,6 +27,8 @@ export function createApp(): Express {
   app.use('/health', healthRouter);
   app.use('/api/uploads', uploadsRouter);
   app.use('/api/documents', documentsRouter);
+  app.use('/api/render', renderRouter);
+  app.use('/api/summaries', summariesRouter);
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path });

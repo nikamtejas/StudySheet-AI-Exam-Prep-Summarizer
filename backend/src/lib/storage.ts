@@ -48,6 +48,14 @@ export async function createPresignedUploadUrl(key: string, contentType: string)
   return getSignedUrl(getStorageClient(), command, { expiresIn: PRESIGN_EXPIRY_SECONDS });
 }
 
+// Rendered PDFs are cached in R2 permanently (docs/studysheet-build-prompt.md
+// §11: "never regenerate on download") — this is how a caller gets a
+// time-limited URL to fetch one without the object needing to be public.
+export async function createPresignedDownloadUrl(key: string): Promise<string> {
+  const command = new GetObjectCommand({ Bucket: env.R2_BUCKET, Key: key });
+  return getSignedUrl(getStorageClient(), command, { expiresIn: PRESIGN_EXPIRY_SECONDS });
+}
+
 export async function uploadObject(
   key: string,
   body: Buffer,

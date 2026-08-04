@@ -3,12 +3,14 @@ import { z } from "zod";
 // NEXT_PUBLIC_* values differ per environment (dev/staging/prod) so, like the
 // backend's FRONTEND_URL/CORS_ORIGIN, they're required with no default rather
 // than silently falling back to localhost. RENDER_TOKEN_SECRET is server-side
-// only and isn't wired up until M6 (the /print route), so it stays optional
-// until then — see docs/studysheet-build-prompt.md §14.
+// only; M6 wires it up (the /print route's middleware verifies render tokens
+// with it) so it's required now — see docs/studysheet-build-prompt.md §14.
+// Must match backend/.env's RENDER_TOKEN_SECRET exactly — both sides sign/
+// verify the same HMAC.
 const envSchema = z.object({
   NEXT_PUBLIC_API_URL: z.string().url(),
   NEXT_PUBLIC_APP_URL: z.string().url(),
-  RENDER_TOKEN_SECRET: z.string().optional(),
+  RENDER_TOKEN_SECRET: z.string().min(1),
 });
 
 export type Env = z.infer<typeof envSchema>;

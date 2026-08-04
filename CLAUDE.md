@@ -185,7 +185,80 @@ malformed-input section. Manually verified in a real browser, not just asserted 
 byte-identical output on repeat render — the prerequisite for M6's "same JSON in → byte-comparable
 PDF out" gate.
 
-Next up: **M6 — PDF renderer** (see docs/studysheet-milestones.md).
+**M6 — PDF renderer: done.** The split architecture proves itself here: `frontend/` owns
+`/print/[summaryId]` (three variants — full study sheet, one-pager, answer appendix — via
+`?variant=`), `backend/` just drives a headless browser at it. Frontend's `app/` was restructured
+into two route groups — `(app)/` (the existing landing page, now with its own `layout.tsx`) and
+`(print)/` (a second, independent root layout, Next.js's documented "multiple root layouts"
+pattern) — because `/print` needs a completely separate `<html>`/`<body>` shell with zero app
+chrome, and a page nested under a shared root layout can't override that root's own tags.
+
+**Render tokens**: HMAC-SHA256, single-use, ~2min TTL, scoped to one summary id
+(`backend/src/lib/renderToken.ts` signs with `node:crypto`; `frontend/src/lib/renderToken.ts`
+independently verifies the same scheme with Web Crypto, since Next.js Middleware runs on the Edge
+runtime — no `node:crypto`, no `Buffer`. Confirmed the two crypto APIs produce byte-identical
+HMAC output for the same secret+payload before relying on this). `frontend/src/middleware.ts`
+gates `/print/:path*`: a forged or expired token gets a real HTTP 403 before the page ever renders
+— this is the one thing a `page.tsx` genuinely cannot do on its own (App Router pages have no way
+to set an arbitrary status code), so Middleware is load-bearing here, not incidental. Single-use
+itself is enforced only at the backend's `GET /api/render/:summaryId` (the DB check middleware
+can't do statelessly) — an already-consumed token surfaces as 404 via the page's own `notFound()`,
+one layer softer than forged/expired's 403, and that's an accepted, intentional gap (see memory).
+
+**Puppeteer**: cold Chromium launch measured at ~7.8s on this machine — confirms the milestone's
+own warning almost exactly, and is why a warm pool (`backend/src/lib/puppeteerPool.ts`,
+`PUPPETEER_POOL_SIZE`) isn't optional. Warm-pool render measured end-to-end (navigate → wait for
+`data-render-ready` → `page.pdf()`) at 130–450ms real, ~15x under the 3s budget, including the
+KaTeX-heavy answer-appendix variant and the Next.js App Router page's own baseline client JS (see
+below). `closePuppeteerPool()` is wired into the API server's `SIGTERM`/`SIGINT` handlers — the
+one thing here that leaks real OS processes if the process dies without closing it explicitly.
+
+**Byte-comparability required a real fix, not just "don't add timestamps."** Confirmed directly:
+two `page.pdf()` calls from Puppeteer for *identical* HTML content are NOT byte-identical — some
+Chromium-internal serialization detail varies run to run, with no visible cause (no `/CreationDate`
+or `/ModDate` present either). Re-serializing the output through `pdf-lib` (normalized
+creation/mod dates, blanked producer/creator/author/subject/title, `useObjectStreams: false` for a
+deterministic object layout) makes two independently-generated PDFs of the same content
+byte-identical — also confirmed directly, and now what `pipeline/render.ts`'s `canonicalize()`
+does before every upload. Without this step, "same JSON in → byte-comparable PDF out" would
+silently fail despite every other part of the pipeline being deterministic.
+
+**"Zero client JS" is aspirational, not literal, for `/print` — a measured, considered
+tradeoff.** Next.js App Router ships a baseline shared JS bundle (~113KB, React + the Next.js
+runtime) for every route by default, including one with zero `"use client"` components — there is
+no simple App Router flag to suppress it; genuinely zero bytes would mean abandoning `page.tsx`
+for a raw Route Handler that manually strings together HTML (losing JSX/component reuse, including
+M5's visual components). Given the *functional* intent — no hydration, no client component
+overhead — is already met, and the real, measured impact is negligible (component renders in
+130–450ms end-to-end, nowhere near the 3s budget), keeping the current `page.tsx` implementation
+was the pragmatic call. If bundle size becomes a real constraint later, the raw-Route-Handler
+rewrite is the documented escape hatch — see memory for detail.
+
+**One-pager "fits on exactly one sheet" is a real measure-and-retry loop**, not a fixed content
+budget: `pipeline/render.ts`'s `renderSummary()` renders, checks the actual page count via
+`pdf-lib`, and if it's more than one page, increments a `trimLevel` and re-renders — up to a bound
+— never shrinking type below the print CSS's floor. `frontend/.../OnePager.tsx` owns the actual
+priority order content gets dropped in (definitions and formulas are the bulk of the value; only
+the top 3 exam questions are offered at all, per §5's own description) — the backend's retry loop
+only drives *how many* items to drop, never *which*.
+
+**Highlight cap** (§6: "if more than ~15% of a page is marked, drop the weakest marks") is
+enforced in `backend/src/pipeline/highlightCap.ts`, applied only in the render-fetch path
+(`GET /api/render/:summaryId`) — never touches the persisted `Summary`, so a future interactive
+web preview (M7) can still show every highlight. "Weakest" isn't spec-defined: `definition` marks
+drop before `exam-critical` ones, and within a kind, longer highlighted spans drop before shorter
+ones — a documented judgment call, not a spec requirement.
+
+**Known gap, not yet done:** CI currently runs backend and frontend as fully separate jobs with no
+shared network, so `backend/test/render.test.ts` (which needs a real reachable frontend server, not
+just Mongo/MinIO) will skip gracefully in CI exactly like it does locally — its assertions have
+only been verified by hand this session (real Puppeteer, real timing, real byte-comparison, real
+page counts — see memory for the specific numbers), never by an automated CI run. Wiring CI to
+build+start a live frontend alongside the backend job is the natural next step for whoever picks
+this up, but was deliberately left undone here rather than risk an unverifiable, blast-radius-large
+CI change with no way to confirm it actually works from this environment.
+
+Next up: **M7 — Web app** (see docs/studysheet-milestones.md).
 
 Update this section when a milestone's gate passes, before starting the next one.
 
@@ -282,8 +355,8 @@ milestone that wires them up makes them load-bearing, so M0–M1 dev doesn't req
 
 - `ANTHROPIC_API_KEY` — optional until M2 (real Claude calls)
 - `STRIPE_*` / `RAZORPAY_*` — optional until M10 (billing)
-- `RENDER_TOKEN_SECRET` in `frontend/.env.local` — optional until M6 (the `/print` route)
 
-Everything else (Mongo, Redis, storage, `AUTH_SECRET`, `RENDER_TOKEN_SECRET` in `backend/.env`,
-`FRONTEND_URL`/`CORS_ORIGIN`, `NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_APP_URL`) is required now and
+Everything else (Mongo, Redis, storage, `AUTH_SECRET`, `RENDER_TOKEN_SECRET` in both `backend/.env`
+and `frontend/.env.local` — required as of M6, the two must match exactly — `FRONTEND_URL`/
+`CORS_ORIGIN`, `NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_APP_URL`) is required now and
 has no default — see `.env.example` / `.env.local.example` for the local dev values.
