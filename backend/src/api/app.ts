@@ -4,11 +4,14 @@ import pinoHttp from 'pino-http';
 import { env } from '../config/env';
 import { logger } from '../lib/logger';
 import { requestId } from './middleware/requestId';
+import { ensureMongoConnected } from './middleware/ensureMongo';
 import { healthRouter } from './routes/health';
 import { uploadsRouter } from './routes/uploads';
 import { documentsRouter } from './routes/documents';
 import { renderRouter } from './routes/render';
 import { summariesRouter } from './routes/summaries';
+import { jobsRouter } from './routes/jobs';
+import { solveRouter } from './routes/solve';
 
 export function createApp(): Express {
   const app = express();
@@ -25,10 +28,13 @@ export function createApp(): Express {
   app.use(express.json());
 
   app.use('/health', healthRouter);
+  app.use('/api', ensureMongoConnected);
   app.use('/api/uploads', uploadsRouter);
   app.use('/api/documents', documentsRouter);
   app.use('/api/render', renderRouter);
   app.use('/api/summaries', summariesRouter);
+  app.use('/api/jobs', jobsRouter);
+  app.use('/api/solve', solveRouter);
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path });

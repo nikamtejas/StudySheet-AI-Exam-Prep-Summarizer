@@ -86,6 +86,9 @@ jobs:
       - name: Build (proves it builds with the backend switched off)
         working-directory: frontend
         run: npm run build
+      - name: Check bundle size (landing page < 120KB gzipped first-load JS)
+        working-directory: frontend
+        run: npm run check-bundle-size
 
   contracts-drift:
     name: contracts (fail if frontend copy is stale)

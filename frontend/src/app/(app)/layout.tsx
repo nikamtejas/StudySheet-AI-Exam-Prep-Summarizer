@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "katex/dist/katex.min.css";
 import "../globals.css";
+import { clashDisplay, satoshi, jetbrainsMono } from "@/lib/fonts";
 
 export const metadata: Metadata = {
   title: "StudySheet",
@@ -13,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${clashDisplay.variable} ${satoshi.variable} ${jetbrainsMono.variable}`}>
       <body>{children}</body>
     </html>
   );

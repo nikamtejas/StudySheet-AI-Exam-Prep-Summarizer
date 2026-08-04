@@ -258,7 +258,73 @@ build+start a live frontend alongside the backend job is the natural next step f
 this up, but was deliberately left undone here rather than risk an unverifiable, blast-radius-large
 CI change with no way to confirm it actually works from this environment.
 
-Next up: **M7 — Web app** (see docs/studysheet-milestones.md).
+**M7 — Web app: done.** Landing, upload, processing, preview, and standalone-solve routes under
+`frontend/src/app/(app)/`, backed by three new backend surfaces: `POST /api/jobs` +
+`GET /api/jobs/:id` + `GET /api/jobs/:id/stream` (SSE), `POST /api/solve`, and
+`GET /api/summaries/:id` + `GET /api/summaries/:id/source`.
+
+**SSE is Mongo-polling, not pub/sub.** `jobs.ts`'s stream handler polls `JobModel.findById` every
+500ms; the worker (a separate process) is the only writer, and it already checkpoints every stage
+(M2's reliability invariants), so Mongo is already the single source of truth regardless of which
+process is asking. That's what makes "resumes without duplicate sections" (the M7 gate) free: a
+fresh connection just starts polling current state and reports forward — there's no event history
+to replay, so there's nothing to duplicate. The dedup-by-content and terminal-event logic is
+extracted into `backend/src/pipeline/sseSnapshot.ts` (`computeSseSnapshot` / `snapshotChanged` /
+`isTerminal`) specifically so it's unit-testable without a live HTTP/EventSource harness — same
+pattern as `pipeline/jobProgress.ts` (`computeJobProgress`, extracted from a private helper in
+`jobs.ts` for the same reason). Neither route file has dedicated HTTP-level tests; the codebase's
+established convention is testing pipeline/logic functions directly rather than introducing
+`supertest` as a new pattern, so route wiring itself is verified by manual `curl`/live-server smoke
+tests, not automated ones.
+
+**Real bug found via live smoke-testing, not caught by any unit test:** no route in `src/api/`
+ever called `getMongoConnection()` — only CLI entry points and test setup did. Mongoose model
+calls buffer against whatever connection `mongoose.connect()` eventually produces, but nothing
+ever called that in the live API process; it only worked by accident, whenever some earlier
+request happened to hit `GET /health` first (which calls it via `checkMongo()`) and warmed the
+shared connection as a side effect. The first real request to land on a cold server that wasn't
+`/health` sat in Mongoose's buffer for a full 10s and then 500'd — confirmed directly (10013ms,
+`MongooseError: buffering timed out`) by curling `/api/jobs/:id/stream` against a freshly started
+server before anything else had hit it. Fixed with `backend/src/api/middleware/ensureMongo.ts`
+(`ensureMongoConnected`), mounted on `app.use('/api', ...)` — after `/health` (which keeps its own
+already-correct graceful-degradation behavior) but before every data route. Confirmed the fix:
+same cold-start sequence now returns the correct 404 in 36ms.
+
+**RSC boundary lesson (preview route):** a Client Component must never import a Server Component
+that pulls in server-only weight — doing so drags that weight into the client bundle even though
+the component never runs client-side logic. Hit this directly: an early version had a `'use
+client'` orchestrator import `SummaryPane` (which uses M5's `Visual`/`InlineMath`, pulling in
+mathjs + KaTeX), and the preview route's first-load JS came out to ~393KB. Fixed via a Context
+architecture — `PreviewProvider` (client) holds shared state (`activePage`, `highlightsVisible`);
+`SummaryPane` stays a pure Server Component with no client-state props; small client "islands"
+(`PageRefButton`, `HighlightToggle`, `HighlightScope`) consume context from inside server-rendered
+content; the route itself is an async Server Component fetching data server-side. Bundle dropped
+to 116KB. If a future milestone touches `frontend/src/components/preview/`, preserve this
+direction — Server Component importing Client Component is fine, the reverse isn't (when the
+Server Component has server-only deps).
+
+**Bundle-size budget is enforced, not just measured.** `frontend/scripts/check-bundle-size.mjs`
+reads `.next/app-build-manifest.json`'s `/(app)/page` entry, gzips each referenced `.js` chunk, and
+fails above 120KB — wired as `npm run check-bundle-size` and as a CI step right after `npm run
+build` in the frontend job. Landing measures ~112KB gzipped by this script (Next's own "First Load
+JS" report says 115KB — the two measure slightly differently, both comfortably under budget).
+
+**Accessibility: verified structurally, not with a live browser or Lighthouse.** The Claude-in-Chrome
+extension was unavailable for the entire session (same as M5/M6), so this was checked by reading
+rendered HTML and source rather than in an actual browser: semantic form controls throughout
+(`<fieldset>`/`<legend>` grouping the upload depth radios, `sr-only` `<label for>` on the file input
+and the solve textarea, native `<input type="checkbox">` for the highlight toggle), every
+interactive handler on a native `<button>` (no `onClick` on a `div`/`span` anywhere), focus-visible
+rings on every interactive element sampled, `aria-live="polite"` + `role="status"` on
+`ProcessingView`'s progress text, and the M5 SVG primitives' `viewBox`-only sizing (no `width`/
+`height` attributes) which lets them shrink to their container naturally. One real gap this caught:
+`SourcePane`'s pdf.js canvas rendered at a fixed `scale: 1.3`, wider than a 375px viewport with no
+way to shrink — fixed with a `ResizeObserver` that renders at `min(containerWidth / pageWidth,
+1.5)` instead, so it now fits any container width and reflows on resize. Lighthouse ≥95 and
+axe-core-style automated a11y auditing were not run — no tooling for either was available in this
+environment; flagging this explicitly rather than claiming a pass that wasn't actually checked.
+
+Next up: **M8 — Accounts, library, quotas** (see docs/studysheet-milestones.md).
 
 Update this section when a milestone's gate passes, before starting the next one.
 

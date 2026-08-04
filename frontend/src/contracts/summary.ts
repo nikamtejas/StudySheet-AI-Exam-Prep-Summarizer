@@ -94,12 +94,24 @@ export const CreateJobRequestSchema = z.object({
 });
 export type CreateJobRequest = z.infer<typeof CreateJobRequestSchema>;
 
+// docs/studysheet-build-prompt.md §8 lists `progress: { done, total }` on the
+// Job model — computed on read from the persisted chunk/problem arrays
+// (chunkResults.length vs chunks.length + visionChunks.length +
+// problems.length) rather than stored redundantly, so there's exactly one
+// source of truth for "how far along is this job" (api/routes/jobs.ts).
+export const JobProgressSchema = z.object({
+  done: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+export type JobProgress = z.infer<typeof JobProgressSchema>;
+
 export const JobSchema = z.object({
   id: z.string(),
   userId: z.string(),
   documentIds: z.array(z.string()),
   status: JobStatusSchema,
   stage: JobStageSchema,
+  progress: JobProgressSchema,
   tokensUsed: z.object({ input: z.number().int().nonnegative(), output: z.number().int().nonnegative() }),
   costCents: z.number().nonnegative(),
   summaryId: z.string().nullable(),

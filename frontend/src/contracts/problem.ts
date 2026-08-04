@@ -176,3 +176,22 @@ export const VerifiedProblemSchema = SolvedProblemSchema.extend({
   verificationNote: z.string().optional(),
 });
 export type VerifiedProblem = z.infer<typeof VerifiedProblemSchema>;
+
+// docs/studysheet-build-prompt.md §10: "POST /api/solve → { problem,
+// subject?, image? } → solved steps (standalone entry point, no upload)".
+// Text-only for now — M7's build list says this entry point is "wired to
+// solveOne()", the existing text-based function from M4; photographing a
+// problem would need vision-capable solving (uploading via the Files API,
+// the way M3's vision path does for documents), which hasn't been built.
+// No `pageRef` here either — unlike VerifiedProblem, a standalone solve has
+// no source document page to cite.
+export const SolveRequestSchema = z.object({
+  problem: z.string().min(1),
+});
+export type SolveRequest = z.infer<typeof SolveRequestSchema>;
+
+export const StandaloneSolveResponseSchema = SolvedProblemSchema.extend({
+  verified: z.boolean(),
+  verificationNote: z.string().optional(),
+});
+export type StandaloneSolveResponse = z.infer<typeof StandaloneSolveResponseSchema>;

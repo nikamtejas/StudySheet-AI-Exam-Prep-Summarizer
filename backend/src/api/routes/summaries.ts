@@ -1,9 +1,13 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
 import { z } from 'zod';
-import { SummaryModel } from '../../models/Summary';
+import { SummaryModel, type SummaryInstance } from '../../models/Summary';
+import { JobModel } from '../../models/Job';
+import { DocumentModel } from '../../models/Document';
 import { renderSummary, type RenderSize } from '../../pipeline/render';
+import { createPresignedDownloadUrl } from '../../lib/storage';
 import { asyncHandler } from '../asyncHandler';
+import type { SummaryDTO } from '../../contracts';
 
 export const summariesRouter = Router();
 
@@ -16,6 +20,88 @@ async function summaryExists(summaryId: string): Promise<boolean> {
   if (!mongoose.Types.ObjectId.isValid(summaryId)) return false;
   return (await SummaryModel.exists({ _id: summaryId })) !== null;
 }
+
+function toSummaryDTO(doc: SummaryInstance): SummaryDTO {
+  return {
+    id: doc._id.toString(),
+    jobId: doc.jobId,
+    userId: doc.userId,
+    sections: doc.sections,
+    definitions: doc.definitions,
+    examQuestions: doc.examQuestions,
+    problems: doc.problems,
+    connections: doc.connections,
+    version: doc.version,
+    createdAt: doc.createdAt.toISOString(),
+  };
+}
+
+// docs/studysheet-build-prompt.md §10: "GET /api/summaries/:id → full
+// summary JSON". TEMP: no auth yet (arrives in M8, which will scope this to
+// the requesting user's own summaries) — same pattern as
+// CreateDocumentRequestSchema/CreateJobRequestSchema accepting a plain
+// userId until then. Unlike GET /api/render/:summaryId (M6), this one never
+// applies the render-time highlight cap — that's specific to the print
+// path, the web preview shows every highlight.
+summariesRouter.get(
+  '/:summaryId',
+  asyncHandler(async (req, res) => {
+    const summaryId = req.params.summaryId;
+    if (!summaryId || !mongoose.Types.ObjectId.isValid(summaryId)) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    const summary = await SummaryModel.findById(summaryId);
+    if (!summary) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    res.json(toSummaryDTO(summary));
+  }),
+);
+
+// Not in the original API surface list (§10) — added for M7's preview view,
+// which needs the source PDF to render alongside the summary for page-ref
+// jumping. Joins Summary -> Job -> Document server-side (three round trips
+// the frontend would otherwise have to make itself with no single ID
+// linking them directly) and returns a presigned download URL, matching how
+// M6's render pipeline already fetches source PDFs. Single-document jobs
+// only, same limitation pipeline/orchestrate.ts's "queued" stage already
+// has (cross-document "connections" is explicitly a later, unbuilt feature).
+summariesRouter.get(
+  '/:summaryId/source',
+  asyncHandler(async (req, res) => {
+    const summaryId = req.params.summaryId;
+    if (!summaryId || !mongoose.Types.ObjectId.isValid(summaryId)) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    const summary = await SummaryModel.findById(summaryId);
+    if (!summary) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    const job = await JobModel.findById(summary.jobId);
+    const documentId = job?.documentIds[0];
+    if (!documentId || !mongoose.Types.ObjectId.isValid(documentId)) {
+      res.status(404).json({ error: 'source_not_found' });
+      return;
+    }
+
+    const document = await DocumentModel.findById(documentId);
+    if (!document) {
+      res.status(404).json({ error: 'source_not_found' });
+      return;
+    }
+
+    const url = await createPresignedDownloadUrl(document.r2Key);
+    res.json({ url, filename: document.filename, pageCount: document.pageCount });
+  }),
+);
 
 // docs/studysheet-build-prompt.md §10: "POST /api/summaries/:id/render →
 // regenerate PDF from current JSON". Synchronous, not queued through BullMQ

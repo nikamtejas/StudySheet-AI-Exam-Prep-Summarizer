@@ -1,7 +1,11 @@
+import { Hero } from '@/components/landing/Hero';
+import { HowItWorks } from '@/components/landing/HowItWorks';
+
 export default function Home() {
   return (
-    <main>
-      <div>Hello world!</div>
+    <main className="bg-ink text-paper min-h-screen">
+      <Hero />
+      <HowItWorks />
     </main>
   );
 }

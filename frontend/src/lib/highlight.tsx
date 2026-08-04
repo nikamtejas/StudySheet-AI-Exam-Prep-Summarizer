@@ -10,9 +10,12 @@ interface Match {
 // Highlights carry their literal text, not offsets, so this finds each
 // highlight's first occurrence in the paragraph and wraps it. Overlapping
 // matches (two highlights claiming the same span) keep whichever starts
-// first — a highlight is never nested inside another.
-export function renderHighlighted(text: string, highlights: Highlight[]): ReactNode[] {
-  if (highlights.length === 0) return [text];
+// first — a highlight is never nested inside another. `visible: false`
+// (the preview's highlight-toggle, docs/studysheet-milestones.md M7) skips
+// the <mark> wrapper entirely rather than hiding it with CSS, so toggling
+// off is a real content simplification, not a visual trick.
+export function renderHighlighted(text: string, highlights: Highlight[], visible = true): ReactNode[] {
+  if (highlights.length === 0 || !visible) return [text];
 
   const matches: Match[] = [];
   for (const h of highlights) {
@@ -50,7 +53,7 @@ export function renderHighlighted(text: string, highlights: Highlight[]): ReactN
 
 // Sections' body text uses a blank line between paragraphs — split and wrap
 // each independently so highlight matching never crosses a paragraph break.
-export function renderBody(body: string, highlights: Highlight[]): ReactNode {
+export function renderBody(body: string, highlights: Highlight[], visible = true): ReactNode {
   const paragraphs = body.split(/\n{2,}/).filter((p) => p.trim().length > 0);
-  return paragraphs.map((paragraph, i) => <p key={i}>{renderHighlighted(paragraph, highlights)}</p>);
+  return paragraphs.map((paragraph, i) => <p key={i}>{renderHighlighted(paragraph, highlights, visible)}</p>);
 }

@@ -1,9 +1,7 @@
 @import "tailwindcss";
 
-/* "Marker" palette — docs/studysheet-build-prompt.md §9. Only the color
-   tokens the visual primitives need land here in M5; the full type scale,
-   fonts, and app shell are M7's job ("Web app"). Amber/teal are reserved for
-   highlighting the thing being explained — never decorative. */
+/* "Marker" palette — docs/studysheet-build-prompt.md §9. Amber/teal are
+   reserved for highlighting the thing being explained — never decorative. */
 @theme {
   --color-ink: #0a0e1c;
   --color-surface: #141a2e;
@@ -12,4 +10,112 @@
   --color-amber: #ffc53d;
   --color-teal: #3fe0ce;
   --color-muted: #8791ae;
+}
+
+/* Fonts (M7) — Clash Display for headings/hero/section numbers, Satoshi for
+   all prose, JetBrains Mono for anything reporting a measurement (page
+   refs, progress counters, confidence tags, file sizes). `@theme inline` (not
+   a plain `@theme`) so these reference the *runtime* CSS variables
+   next/font injects on <html> (frontend/src/lib/fonts.ts) rather than
+   inlining a value at build time — the standard pattern for wiring
+   next/font into Tailwind v4. */
+@theme inline {
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+}
+
+/* Real type scale — docs/studysheet-build-prompt.md §9: "Set a real scale
+   (e.g. 12 / 14 / 16 / 20 / 28 / 44 / 72)". Replaces Tailwind's default
+   scale project-wide rather than living alongside it under different names. */
+@theme {
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 20px;
+  --text-xl: 28px;
+  --text-2xl: 44px;
+  --text-3xl: 72px;
+}
+
+body {
+  font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Screen version of the highlight marks lib/highlight.tsx renders — a
+   separate copy from print.css's own `.hl-*` rules (M6), deliberately: print
+   CSS stays independently editable ("restyling is a pure frontend change"),
+   this is the app/preview's own copy for the same visual concept. */
+.hl-definition {
+  background: color-mix(in srgb, var(--color-amber) 35%, transparent);
+  border-bottom: 2px solid var(--color-amber);
+}
+
+.hl-exam-critical {
+  background: color-mix(in srgb, var(--color-teal) 35%, transparent);
+  border-bottom: 2px dashed var(--color-teal);
+}
+
+/* Preview's highlight toggle (docs/studysheet-milestones.md M7) — a CSS-only
+   effect on marks SummaryPane always server-renders, driven by
+   HighlightScope stamping a data-attribute from client state. */
+[data-highlights='off'] mark {
+  background: none;
+  border-bottom: none;
+  color: inherit;
+  padding: 0;
+}
+
+/* The marker stroke (docs/studysheet-build-prompt.md §9) — an irregular
+   right edge (98% vs 100% between the top/bottom points) reads as a felt-tip
+   pass rather than a straight CSS wipe. Fires once via clip-path animating
+   from zero width, triggered by MarkerHighlight's IntersectionObserver. */
+.marker-highlight {
+  position: relative;
+  padding: 0 2px;
+}
+
+.marker-highlight::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(0 0, 2% 0, 0% 100%, 0 100%);
+  z-index: -1;
+}
+
+.marker-definition::before {
+  background: var(--color-amber);
+  opacity: 0.45;
+}
+
+.marker-exam-critical::before {
+  background: var(--color-teal);
+  opacity: 0.45;
+}
+
+.marker-revealed::before {
+  animation: marker-sweep 320ms ease-out forwards;
+}
+
+@keyframes marker-sweep {
+  from {
+    clip-path: polygon(0 0, 2% 0, 0% 100%, 0 100%);
+  }
+  to {
+    clip-path: polygon(0 0, 100% 0, 98% 100%, 0 100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marker-highlight::before {
+    clip-path: polygon(0 0, 100% 0, 98% 100%, 0 100%) !important;
+    animation: none !important;
+  }
 }
