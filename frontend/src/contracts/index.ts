@@ -3,6 +3,7 @@
 // Regenerate with: npm run sync:contracts (in backend/)
 
 export * from './common';
+export * from './auth';
 export * from './health';
 export * from './document';
 export * from './problem';

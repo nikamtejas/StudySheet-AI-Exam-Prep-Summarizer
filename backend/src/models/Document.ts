@@ -14,6 +14,9 @@ export interface DocumentAttrs {
   visionPageCount: number;
   overrideNotice: string | null;
   createdAt: Date;
+  // See models/Job.ts's anonymousExpiresAt — same TTL-cleanup mechanism,
+  // set only for anonymous-trial uploads.
+  anonymousExpiresAt: Date | null;
 }
 
 export type DocumentInstance = HydratedDocument<DocumentAttrs>;
@@ -49,6 +52,7 @@ const DocumentMongooseSchema = new Schema<DocumentAttrs>(
     textPageCount: { type: Number, required: true },
     visionPageCount: { type: Number, required: true },
     overrideNotice: { type: String, default: null },
+    anonymousExpiresAt: { type: Date, default: null },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );
@@ -58,5 +62,6 @@ const DocumentMongooseSchema = new Schema<DocumentAttrs>(
 // just a fast path that skips the expensive probe/rasterize work in the
 // common case (see docs/studysheet-build-prompt.md §8).
 DocumentMongooseSchema.index({ userId: 1, fileHash: 1 }, { unique: true });
+DocumentMongooseSchema.index({ anonymousExpiresAt: 1 }, { expireAfterSeconds: 0 });
 
 export const DocumentModel = model<DocumentAttrs>('Document', DocumentMongooseSchema);

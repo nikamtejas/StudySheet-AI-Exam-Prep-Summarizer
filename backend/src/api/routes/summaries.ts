@@ -16,9 +16,13 @@ const RenderRequestSchema = z.object({
   size: z.enum(['a4', 'letter']).default('a4'),
 });
 
-async function summaryExists(summaryId: string): Promise<boolean> {
+// Ownership, not just existence — a summaryId belonging to another identity
+// comes back identical to an unknown id (404), never a distinguishing 403
+// (docs/studysheet-milestones.md M8: "a user cannot read another user's ...
+// summary, or PDF").
+async function summaryOwnedBy(summaryId: string, userId: string): Promise<boolean> {
   if (!mongoose.Types.ObjectId.isValid(summaryId)) return false;
-  return (await SummaryModel.exists({ _id: summaryId })) !== null;
+  return (await SummaryModel.exists({ _id: summaryId, userId })) !== null;
 }
 
 function toSummaryDTO(doc: SummaryInstance): SummaryDTO {
@@ -37,12 +41,12 @@ function toSummaryDTO(doc: SummaryInstance): SummaryDTO {
 }
 
 // docs/studysheet-build-prompt.md §10: "GET /api/summaries/:id → full
-// summary JSON". TEMP: no auth yet (arrives in M8, which will scope this to
-// the requesting user's own summaries) — same pattern as
-// CreateDocumentRequestSchema/CreateJobRequestSchema accepting a plain
-// userId until then. Unlike GET /api/render/:summaryId (M6), this one never
-// applies the render-time highlight cap — that's specific to the print
-// path, the web preview shows every highlight.
+// summary JSON". Scoped to the requesting identity (api/middleware/identity.ts)
+// since M8. Unlike GET /api/render/:summaryId (M6, a differently-secured
+// service-to-service route gated by a signed render token, not a session —
+// left untouched here), this one never applies the render-time highlight
+// cap — that's specific to the print path, the web preview shows every
+// highlight.
 summariesRouter.get(
   '/:summaryId',
   asyncHandler(async (req, res) => {
@@ -53,7 +57,7 @@ summariesRouter.get(
     }
 
     const summary = await SummaryModel.findById(summaryId);
-    if (!summary) {
+    if (!summary || summary.userId !== req.identity.userId) {
       res.status(404).json({ error: 'not_found' });
       return;
     }
@@ -80,7 +84,7 @@ summariesRouter.get(
     }
 
     const summary = await SummaryModel.findById(summaryId);
-    if (!summary) {
+    if (!summary || summary.userId !== req.identity.userId) {
       res.status(404).json({ error: 'not_found' });
       return;
     }
@@ -113,7 +117,7 @@ summariesRouter.post(
   '/:summaryId/render',
   asyncHandler(async (req, res) => {
     const summaryId = req.params.summaryId;
-    if (!summaryId || !(await summaryExists(summaryId))) {
+    if (!summaryId || !(await summaryOwnedBy(summaryId, req.identity.userId))) {
       res.status(404).json({ error: 'not_found' });
       return;
     }
@@ -143,7 +147,7 @@ summariesRouter.post(
   '/:summaryId/onepager',
   asyncHandler(async (req, res) => {
     const summaryId = req.params.summaryId;
-    if (!summaryId || !(await summaryExists(summaryId))) {
+    if (!summaryId || !(await summaryOwnedBy(summaryId, req.identity.userId))) {
       res.status(404).json({ error: 'not_found' });
       return;
     }
@@ -156,5 +160,24 @@ summariesRouter.post(
 
     const result = await renderSummary(summaryId, 'onepager', parsed.data.size as RenderSize);
     res.json(result);
+  }),
+);
+
+// docs/studysheet-milestones.md M8: library "re-download, delete". Only the
+// Summary itself is removed — the source Document and Job stay (they're
+// small metadata, and deleting them would break re-render from the same
+// upload); nothing else in the API surface exposes a deleted summary's id
+// again once this returns.
+summariesRouter.delete(
+  '/:summaryId',
+  asyncHandler(async (req, res) => {
+    const summaryId = req.params.summaryId;
+    if (!summaryId || !(await summaryOwnedBy(summaryId, req.identity.userId))) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    await SummaryModel.deleteOne({ _id: summaryId });
+    res.status(204).end();
   }),
 );

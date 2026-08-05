@@ -3,6 +3,7 @@ import { SummaryModel } from '../models/Summary';
 import { DocumentModel } from '../models/Document';
 import { downloadObject } from '../lib/storage';
 import { logger } from '../lib/logger';
+import { commitQuota, releaseQuota, resolvePlan } from '../lib/quota';
 import { prepareText } from './prepare';
 import { chunkPages } from './chunk';
 import { chunkVisionPages } from './chunkVision';
@@ -195,17 +196,36 @@ export async function processJob(jobId: string): Promise<void> {
         problems: job.problemResults.map((r) => r.result),
         connections: [],
         version: 1,
+        anonymousExpiresAt: job.anonymousExpiresAt,
       });
 
       job.summaryId = summary.id;
       job.stage = 'done';
       job.status = 'completed';
       job.finishedAt = new Date();
+
+      // Reservation → commit (docs/studysheet-milestones.md M8). Guarded by
+      // quotaSettled so a manually re-triggered already-completed job (BullMQ
+      // itself never retries — worker/queue.ts's attempts: 1) can't
+      // double-commit the same pages.
+      if (!job.quotaSettled) {
+        const plan = await resolvePlan(job.userId);
+        await commitQuota(job.userId, plan, job.reservedPages, job.visionPages.length, job.costCents);
+        job.quotaSettled = true;
+      }
+
       await job.save();
     }
   } catch (err) {
     job.status = 'failed';
     job.error = (err as Error).message;
+
+    if (!job.quotaSettled) {
+      const plan = await resolvePlan(job.userId);
+      await releaseQuota(job.userId, plan, job.reservedPages);
+      job.quotaSettled = true;
+    }
+
     await job.save();
     throw err;
   }

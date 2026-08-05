@@ -91,20 +91,48 @@ export function UploadForm() {
           r2Key,
           filename: entry.file.name,
           sourceType: 'mixed',
-          userId: 'anonymous',
         });
         documentIds.push(document.id);
       }
 
-      const { jobId } = await createJob({ documentIds, depth, userId: 'anonymous' });
+      const { jobId } = await submitJob(documentIds);
       router.push(`/process/${jobId}`);
     } catch (err) {
       if (err instanceof ApiError && err.code === 'queue_unavailable') {
         setError('The processing queue is unavailable right now. Try again in a moment.');
+      } else if (err instanceof ApiError && err.code === 'quota_exceeded') {
+        const { allowance, used, reserved } = err.body as { allowance: number; used: number; reserved: number };
+        setError(
+          `This would use more pages than you have left (${allowance - used - reserved} of ${allowance} remaining). ` +
+            'Remove a file or wait for your allowance to reset.',
+        );
+      } else if (err instanceof ApiError && err.code === 'document_not_found') {
+        setError("One of these files couldn't be found — try uploading again.");
       } else {
         setError(err instanceof Error ? err.message : 'Something went wrong. Try again.');
       }
       setSubmitting(false);
+    }
+  }
+
+  // The cost guard (backend/src/pipeline/quota.ts, COST_GUARD_CENTS) rejects
+  // an expensive job with an estimate first — docs/studysheet-build-prompt.md
+  // §12: "never surprise a student with a wall". Re-submitting the identical
+  // request with confirmed:true is what actually queues it.
+  async function submitJob(documentIds: string[]): Promise<{ jobId: string }> {
+    try {
+      return await createJob({ documentIds, depth, confirmed: false });
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'cost_confirmation_required') {
+        const { estimatedCostCents, pages } = err.body as { estimatedCostCents: number; pages: number };
+        const estimate = formatCost(estimatedCostCents / 100);
+        const confirmed = window.confirm(
+          `This ${pages}-page job is estimated at ${estimate} — more than usual. Continue?`,
+        );
+        if (!confirmed) throw new Error('Cancelled.');
+        return await createJob({ documentIds, depth, confirmed: true });
+      }
+      throw err;
     }
   }
 

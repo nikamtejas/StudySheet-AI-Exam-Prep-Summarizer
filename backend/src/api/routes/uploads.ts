@@ -3,11 +3,14 @@ import { Router } from 'express';
 import { PresignRequestSchema } from '../../contracts';
 import { createPresignedUploadUrl } from '../../lib/storage';
 import { asyncHandler } from '../asyncHandler';
+import { perUserUploadLimit, perIpUploadLimit } from '../middleware/rateLimit';
 
 export const uploadsRouter = Router();
 
 uploadsRouter.post(
   '/presign',
+  perUserUploadLimit,
+  perIpUploadLimit,
   asyncHandler(async (req, res) => {
     const parsed = PresignRequestSchema.safeParse(req.body);
     if (!parsed.success) {

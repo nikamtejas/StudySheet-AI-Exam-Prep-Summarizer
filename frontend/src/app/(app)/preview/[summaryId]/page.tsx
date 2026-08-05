@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import { getSummary, getSummarySource } from '@/lib/api';
 import { PreviewProvider } from '@/components/preview/PreviewContext';
 import { HighlightToggle } from '@/components/preview/HighlightToggle';
@@ -20,8 +21,13 @@ export const metadata: Metadata = {
 export default async function PreviewPage({ params }: { params: Promise<{ summaryId: string }> }) {
   const { summaryId } = await params;
 
-  const summary = await getSummary(summaryId).catch(() => null);
-  const source = await getSummarySource(summaryId).catch(() => null);
+  // A Server Component's fetch has no ambient browser cookie jar (unlike a
+  // Client Component's credentials: 'include') — the visiting browser's
+  // session/anonymous-trial cookie has to be forwarded explicitly, or the
+  // backend sees no identity at all and 404s (M8's ownership check).
+  const cookieHeader = (await cookies()).toString();
+  const summary = await getSummary(summaryId, cookieHeader).catch(() => null);
+  const source = await getSummarySource(summaryId, cookieHeader).catch(() => null);
 
   if (!summary) {
     return (

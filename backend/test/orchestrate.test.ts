@@ -17,6 +17,7 @@ vi.mock('../src/config/env', async () => {
 import { getMongoConnection } from '../src/lib/mongo';
 import { JobModel } from '../src/models/Job';
 import { SummaryModel } from '../src/models/Summary';
+import { UsageModel } from '../src/models/Usage';
 import { processJob } from '../src/pipeline/orchestrate';
 import type { Chunk } from '../src/pipeline/chunk';
 
@@ -49,6 +50,7 @@ afterAll(async () => {
   if (infraAvailable) {
     await JobModel.deleteMany({ userId: { $regex: new RegExp(`^${TEST_USER_PREFIX}`) } });
     await SummaryModel.deleteMany({ userId: { $regex: new RegExp(`^${TEST_USER_PREFIX}`) } });
+    await UsageModel.deleteMany({ userId: { $regex: new RegExp(`^${TEST_USER_PREFIX}`) } });
   }
 });
 

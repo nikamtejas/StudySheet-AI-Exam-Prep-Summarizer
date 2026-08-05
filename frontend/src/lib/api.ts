@@ -8,6 +8,9 @@ import type {
   SummaryDTO,
   SolveRequest,
   StandaloneSolveResponse,
+  IdentityResponse,
+  UsageResponse,
+  LibraryResponse,
 } from '@/contracts';
 
 // docs/studysheet-build-prompt.md §10/§6: the ONE place frontend/ talks to
@@ -22,27 +25,61 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL;
 export class ApiError extends Error {
   status: number;
   code: string;
+  // The full parsed error body — carries the extra fields specific error
+  // codes need (e.g. cost_confirmation_required's estimatedCostCents/pages,
+  // quota_exceeded's allowance/used/reserved) without a growing list of
+  // ApiError constructor parameters most callers don't care about.
+  body: Record<string, unknown>;
 
-  constructor(status: number, code: string) {
+  constructor(status: number, code: string, body: Record<string, unknown> = {}) {
     super(`API error ${status}: ${code}`);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.body = body;
   }
 }
 
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+// Reads the CSRF cookie the backend issues (api/middleware/csrf.ts) — it's
+// deliberately readable by page JS (httpOnly: false), since double-submit
+// CSRF's entire mechanism is the frontend echoing the cookie's value back in
+// a header a cross-site attacker couldn't have read themselves. Only ever
+// called client-side (document.cookie doesn't exist during SSR — every
+// caller of a mutating apiFetch here is a Client Component).
+function readCsrfCookie(): string | undefined {
+  if (typeof document === 'undefined') return undefined;
+  const match = document.cookie.match(/(?:^|; )ss_csrf=([^;]+)/);
+  return match?.[1];
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = init?.method ?? 'GET';
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (MUTATING_METHODS.has(method)) {
+    const csrf = readCsrfCookie();
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+  }
+
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    // Required for the session/anonymous-trial/CSRF cookies (all set by the
+    // backend, a different origin) to be sent on every request and stored
+    // from every response — docs/studysheet-build-prompt.md §10's whole
+    // cross-origin cookie design is inert without this.
+    credentials: 'include',
+    headers: { ...headers, ...init?.headers },
   });
 
   if (!res.ok) {
     const body: unknown = await res.json().catch(() => ({}));
-    const code = typeof body === 'object' && body && 'error' in body ? String(body.error) : 'unknown_error';
-    throw new ApiError(res.status, code);
+    const bodyObj = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+    const code = 'error' in bodyObj ? String(bodyObj.error) : 'unknown_error';
+    throw new ApiError(res.status, code, bodyObj);
   }
 
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -92,7 +129,10 @@ export interface JobStreamHandlers {
 // close the EventSource (the browser doesn't do this automatically for you
 // just because the component holding the reference disappears).
 export function streamJob(jobId: string, handlers: JobStreamHandlers): () => void {
-  const source = new EventSource(`${API_URL}/api/jobs/${jobId}/stream`);
+  // withCredentials: true — same reason as apiFetch's credentials:
+  // 'include'; without it the session/anonymous-trial cookie never reaches
+  // this cross-origin request and the stream 404s against the wrong identity.
+  const source = new EventSource(`${API_URL}/api/jobs/${jobId}/stream`, { withCredentials: true });
 
   source.addEventListener('progress', (event) => {
     handlers.onProgress?.(JSON.parse((event as MessageEvent).data) as JobProgressEvent);
@@ -110,8 +150,15 @@ export function streamJob(jobId: string, handlers: JobStreamHandlers): () => voi
   return () => source.close();
 }
 
-export function getSummary(summaryId: string): Promise<SummaryDTO> {
-  return apiFetch(`/api/summaries/${summaryId}`);
+// cookieHeader is only ever passed by the one server-side caller (the
+// preview route, an async Server Component) — a server-side fetch has no
+// ambient browser cookie jar to send with credentials: 'include' the way a
+// Client Component's fetch does, so the visiting browser's session/
+// anonymous-trial cookie has to be forwarded explicitly. See
+// app/(app)/preview/[summaryId]/page.tsx, which builds this from next/
+// headers's cookies().toString().
+export function getSummary(summaryId: string, cookieHeader?: string): Promise<SummaryDTO> {
+  return apiFetch(`/api/summaries/${summaryId}`, cookieHeader ? { headers: { Cookie: cookieHeader } } : undefined);
 }
 
 export interface SourceDocument {
@@ -120,8 +167,11 @@ export interface SourceDocument {
   pageCount: number;
 }
 
-export function getSummarySource(summaryId: string): Promise<SourceDocument> {
-  return apiFetch(`/api/summaries/${summaryId}/source`);
+export function getSummarySource(summaryId: string, cookieHeader?: string): Promise<SourceDocument> {
+  return apiFetch(
+    `/api/summaries/${summaryId}/source`,
+    cookieHeader ? { headers: { Cookie: cookieHeader } } : undefined,
+  );
 }
 
 export interface RenderResult {
@@ -150,4 +200,69 @@ export function renderOnePager(summaryId: string, size: 'a4' | 'letter' = 'a4'):
 
 export function solveOneProblem(req: SolveRequest): Promise<StandaloneSolveResponse> {
   return apiFetch('/api/solve', { method: 'POST', body: JSON.stringify(req) });
+}
+
+// See getSummary's comment — cookieHeader is only needed by server-side
+// callers (e.g. the (app)/layout.tsx nav, an async Server Component).
+export function getIdentity(cookieHeader?: string): Promise<IdentityResponse> {
+  return apiFetch('/api/identity', cookieHeader ? { headers: { Cookie: cookieHeader } } : undefined);
+}
+
+export function getUsage(cookieHeader?: string): Promise<UsageResponse> {
+  return apiFetch('/api/usage', cookieHeader ? { headers: { Cookie: cookieHeader } } : undefined);
+}
+
+export function getLibrary(page = 0, pageSize = 20, cookieHeader?: string): Promise<LibraryResponse> {
+  return apiFetch(
+    `/api/library?page=${page}&pageSize=${pageSize}`,
+    cookieHeader ? { headers: { Cookie: cookieHeader } } : undefined,
+  );
+}
+
+export function deleteSummary(summaryId: string): Promise<void> {
+  return apiFetch(`/api/summaries/${summaryId}`, { method: 'DELETE' });
+}
+
+// Auth.js's own CSRF token (distinct from ss_csrf — api/middleware/csrf.ts
+// explicitly exempts /api/auth/* and lets ExpressAuth manage its own).
+// Sign-in forms need this fetched fresh immediately before POSTing, per
+// Auth.js's own documented flow.
+export async function getAuthCsrfToken(): Promise<string> {
+  const res = await fetch(`${API_URL}/api/auth/csrf`, { credentials: 'include' });
+  const body = (await res.json()) as { csrfToken: string };
+  return body.csrfToken;
+}
+
+export async function signInWithEmail(email: string): Promise<void> {
+  const csrfToken = await getAuthCsrfToken();
+  await fetch(`${API_URL}/api/auth/signin/nodemailer`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ email, csrfToken }),
+  });
+}
+
+export async function signInWithGoogle(): Promise<void> {
+  const csrfToken = await getAuthCsrfToken();
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = `${API_URL}/api/auth/signin/google`;
+  form.style.display = 'none';
+  const input = document.createElement('input');
+  input.name = 'csrfToken';
+  input.value = csrfToken;
+  form.appendChild(input);
+  document.body.appendChild(form);
+  form.submit();
+}
+
+export async function signOut(): Promise<void> {
+  const csrfToken = await getAuthCsrfToken();
+  await fetch(`${API_URL}/api/auth/signout`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ csrfToken }),
+  });
 }

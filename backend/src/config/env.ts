@@ -2,10 +2,11 @@ import 'dotenv/config';
 import { z } from 'zod';
 
 // Vars with no sensible default must be set explicitly (docs/studysheet-build-prompt.md §14).
-// ANTHROPIC_API_KEY and the billing keys are exceptions: nothing in M0 calls them, so they're
-// optional until the milestone that wires them up (M2 for Anthropic, M10 for billing) makes
-// them load-bearing. Everything else the api/worker touch at boot (Mongo, Redis, storage,
-// auth/render secrets) is required now.
+// ANTHROPIC_API_KEY, the Google/email auth provider credentials, and the billing keys are
+// exceptions: nothing in M0 calls them, so they're optional until the milestone that wires them
+// up (M2 for Anthropic, M8 for Google/email sign-in, M10 for billing) makes them load-bearing.
+// Everything else the api/worker touch at boot (Mongo, Redis, storage, auth/render secrets) is
+// required now.
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -32,6 +33,16 @@ const envSchema = z.object({
 
   // Not required until M2 wires up real Claude calls.
   ANTHROPIC_API_KEY: z.string().optional(),
+
+  // M8 auth. Google sign-in and magic-link email both degrade cleanly when
+  // unconfigured (see lib/auth.ts) rather than failing to boot — same
+  // pattern as ANTHROPIC_API_KEY: build the real integration now, wire real
+  // credentials in whenever they exist. Without EMAIL_SERVER, magic links
+  // are logged instead of sent — real end-to-end testable without a mailbox.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  EMAIL_SERVER: z.string().optional(),
+  EMAIL_FROM: z.string().default('StudySheet <no-reply@studysheet.local>'),
 
   // Not required until M10 wires up billing.
   STRIPE_SECRET_KEY: z.string().optional(),

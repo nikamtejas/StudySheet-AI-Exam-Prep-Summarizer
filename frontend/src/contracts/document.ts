@@ -60,9 +60,6 @@ export const CreateDocumentRequestSchema = z.object({
   r2Key: z.string().min(1),
   filename: z.string().min(1),
   sourceType: SourceTypeSchema.default('mixed'),
-  // TEMP: no auth yet (arrives in M8). Callers pass an arbitrary id for now;
-  // once sessions exist this comes from req.user.id instead.
-  userId: z.string().min(1).default('anonymous'),
 });
 export type CreateDocumentRequest = z.infer<typeof CreateDocumentRequestSchema>;
 

@@ -324,7 +324,106 @@ way to shrink — fixed with a `ResizeObserver` that renders at `min(containerWi
 axe-core-style automated a11y auditing were not run — no tooling for either was available in this
 environment; flagging this explicitly rather than claiming a pass that wasn't actually checked.
 
-Next up: **M8 — Accounts, library, quotas** (see docs/studysheet-milestones.md).
+**M8 — Accounts, library, quotas: done.** Auth.js (magic link + Google) with the backend as the
+auth server, real cross-origin session cookies, race-safe quota reservation, a cost guard, rate
+limits, an anonymous trial with real 24h TTL cleanup, and a library + admin view.
+
+**`@auth/express`/`@auth/mongodb-adapter` are pure ESM; this backend compiles to CommonJS — a real
+incompatibility, not just an import-style choice.** Verified directly: TypeScript's CommonJS emit
+rewrites a literal `await import(...)` into `Promise.resolve().then(() => require(...))`, which
+still throws `ERR_REQUIRE_ESM` against a pure-ESM package. The fix, `backend/src/lib/esm.ts`
+(`importEsm`), hides the import behind `new Function('specifier', 'return import(specifier)')` —
+an indirect eval TypeScript's AST transform can't see and therefore can't rewrite — confirmed the
+compiled output is then a genuine native dynamic import that loads real ESM from compiled CJS.
+`lib/auth.ts` uses this for `ExpressAuth`, `getSession`, `MongoDBAdapter`, and the Google/Nodemailer
+provider modules; everything else (routes, the adapter's `MongoClient`, which is obtained via
+`mongoose.connection.getClient()` rather than a second connection) stays ordinary CommonJS. Don't
+add a plain top-level `import ... from '@auth/express'` anywhere — it will typecheck and then fail
+at runtime in the compiled build.
+
+**Magic-link sign-in was verified for real, end-to-end, with zero external credentials.**
+`lib/auth.ts`'s Nodemailer provider only sends for real when `EMAIL_SERVER` is configured; without
+it, `sendVerificationRequest` logs the link instead of throwing — which meant the *entire* flow
+(request → logged link → visit link → session cookie issued → `GET /api/auth/session` returns the
+right user with `plan`/`isAdmin` attached) could be driven for real with `curl`, no mocks. Google
+OAuth is wired the same way (conditionally registered only when `GOOGLE_CLIENT_ID`/`SECRET` are
+set) but genuinely can't be exercised without a real registered redirect URI — flagged as
+unverified, not silently assumed to work. Cross-origin cookie behavior in an actual browser
+(Chrome, and especially Safari's stricter third-party-cookie rules, which the milestone doc
+explicitly calls out) is also unverified — the Claude-in-Chrome extension was unavailable for this
+entire session, same as M5–M7.
+
+**Every route that used to trust a client-supplied `userId` now derives it from
+`req.identity`** (`api/middleware/identity.ts`) — a real session for a signed-in user, or an
+unsigned random-UUID anonymous cookie (`ss_anon_id`, httpOnly, 24h) otherwise.
+`contracts/document.ts`/`contracts/summary.ts` dropped the `userId` field entirely rather than
+leaving it ignored, so there's no lingering trust boundary a client could still probe. Verified
+directly (two separate anonymous identities, real cookies, a real Job document): the owner gets
+200, a different identity gets 404 — never a distinguishing 403, matching M6's existing
+"don't reveal whether something exists" convention.
+
+**CSRF is double-submit, cookie value in `ss_csrf`, echoed back via `X-CSRF-Token`** —
+`api/middleware/csrf.ts`, exempted from `/api/auth/*` (Auth.js manages its own CSRF token for its
+own actions; confirmed live that mismatched/missing tokens 403 and a correct one passes through).
+
+**Quota reservation is genuinely race-safe, not just written to look that way** —
+`lib/quota.ts`'s `reserveQuota` does an atomic `findOneAndUpdate` with an `$expr` filter
+(`pagesUsed + pagesReserved + requested <= allowance`) and a `$inc` in the same operation, so two
+concurrent submissions racing for the last few pages of an allowance can't both pass. Proven, not
+assumed: `test/quota-race.test.ts` fires dozens of concurrent `reserveQuota` calls against real
+Mongo (60 requests at 5 pages each against a 30-page allowance) and asserts the persisted
+`pagesReserved` exactly equals what actually succeeded — no lost updates. `commitQuota`/
+`releaseQuota` are called from the worker (`pipeline/orchestrate.ts`), gated by a `Job.quotaSettled`
+flag so a manually re-queued already-settled job (BullMQ itself never auto-retries — `attempts: 1`)
+can't double-commit or double-release, per reliability invariant 7. A brand-new Usage document is
+created as its own explicit step before the conditional increment — combining "create" and
+"conditionally increment" into one upsert would let a single first-ever request skip the check
+entirely (there's nothing for `$expr` to evaluate against on an insert), so a 500-page first
+request against a 30-page allowance would otherwise sail through.
+
+**Free is a one-time, lifetime 30 pages, not a monthly renewal** (§12: "Pages/month ... Free: 30
+(one-time)") — `pipeline/quota.ts`'s `periodFor()` returns the constant `'lifetime'` for the free
+plan and `'YYYY-MM'` for everything else. Student/pro/semester allowances are baked into
+`PLAN_ALLOWANCES` now so the math is already correct once M10 can actually promote a user's plan,
+but nothing does that yet — every real account is 'free' today. Semester's 2000-pages-over-4-months
+is approximated as a monthly reset for now, a documented simplification until M10's real
+`Subscription.periodStart/periodEnd` exists to anchor a genuine 4-month window.
+
+**The cost guard and quota check are both real, but the free tier's numbers mean the cost guard is
+rarely the binding constraint in practice** — 30 free pages costs at most 30×1.4¢ ≈ 42¢, well under
+the default 250¢ `COST_GUARD_CENTS` threshold, so quota almost always trips first for an
+anonymous/free identity. The guard exists for the tiers where it matters (500–1500 pages); its
+own ordering (guard checked, then quota reserved) and its `estimateCostCents` math are unit-tested
+directly rather than only exercised through the free-tier path.
+
+**Anonymous trial cleanup was verified against real MongoDB, not just "the TTL index exists."**
+Created real Document/Job/Summary records with `anonymousExpiresAt` a few seconds in the past and
+polled — confirmed actual deletion within the first 15-second check. `anonymousExpiresAt` stays
+`null` for every real account's records, which is what keeps the same TTL index from ever touching
+them.
+
+**Rate limiting (`api/middleware/rateLimit.ts`) uses `express-rate-limit`'s in-memory store** —
+correct for a single instance, not correct once this backend runs as more than one process. A
+documented gap, not an oversight: the real fix (a shared Redis store — `ioredis` is already a
+dependency) is straightforward but deliberately deferred rather than adding an
+unverified-in-this-environment piece to an already-large milestone. The specific per-user/per-IP
+numbers (20/day and 100/day for jobs, 60/day and 200/day for uploads) aren't spec-mandated — a
+documented judgment call sized so a real user's own page allowance is normally the binding
+constraint, not this.
+
+**A real, narrow gap in the SSR nav's cookie handling, found while smoke-testing, not fixed.**
+`components/nav/AppNav.tsx` fetches identity/usage server-side by forwarding the incoming
+request's cookies to the backend — but a `Set-Cookie` the backend issues on *that* server-to-server
+call (e.g., minting a brand-new anonymous identity for a visitor with no cookies yet) has no path
+back to the visitor's real browser; Next.js doesn't proxy it automatically, and this page doesn't
+do so manually. In practice this only affects the very first paint's usage number for a
+brand-new anonymous visitor — the real identity that matters is the one established moments later
+by the browser's own direct, cross-origin, `credentials: 'include'` fetches (upload, job creation),
+which do receive and store the cookie correctly, confirmed directly. Documented rather than fixed:
+the real fix means the page manually copying `Set-Cookie` headers from its own backend fetch onto
+its response, which is more surface area than this specific edge case's stakes justify right now.
+
+Next up: **M9 — Memory layer** (see docs/studysheet-milestones.md).
 
 Update this section when a milestone's gate passes, before starting the next one.
 

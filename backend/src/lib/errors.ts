@@ -18,3 +18,14 @@ export function describeError(err: unknown): string {
   }
   return String(err);
 }
+
+const MONGO_DUPLICATE_KEY_CODE = 11000;
+
+// Shared by anywhere two concurrent requests can race to create the same
+// uniquely-indexed document (pipeline/ingest.ts's Document dedup, lib/quota.ts's
+// per-period Usage doc) — the unique index is the real source of truth for
+// "only one exists"; this just turns the loser's error into "someone else
+// already created it, carry on" instead of a 500.
+export function isDuplicateKeyError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: number }).code === MONGO_DUPLICATE_KEY_CODE;
+}

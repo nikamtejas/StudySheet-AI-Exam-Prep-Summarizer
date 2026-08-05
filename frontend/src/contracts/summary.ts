@@ -90,7 +90,10 @@ export const CreateJobRequestSchema = z.object({
   documentIds: z.array(z.string()).min(1),
   depth: DepthSchema.default('balanced'),
   language: z.string().optional(),
-  userId: z.string().min(1).default('anonymous'),
+  // Set only in response to a 402 cost_confirmation_required (see
+  // pipeline/quota.ts's cost guard) — the client re-submits the identical
+  // request with this flag once the user has seen and accepted the estimate.
+  confirmed: z.boolean().default(false),
 });
 export type CreateJobRequest = z.infer<typeof CreateJobRequestSchema>;
 

@@ -66,9 +66,27 @@ export interface JobAttrs {
   costCents: number;
   summaryId: string | null;
   error: string | null;
+  // Reserved page count for this job's quota hold (pipeline/quota.ts) —
+  // stored here so the worker can release exactly what was reserved on
+  // failure without recomputing it from documentIds (a Document could in
+  // principle change between reservation and release).
+  reservedPages: number;
+  // Set once commitQuota/releaseQuota has run for this job — BullMQ never
+  // auto-retries (attempts: 1, worker/queue.ts), but a failed job can still
+  // be manually re-added to the queue by an operator, and processJob() would
+  // then reach the same failure/success branch again. Reliability invariant
+  // 7 ("quota moves through one code path with reservation-then-commit
+  // semantics") means that second pass must not double-release or
+  // double-commit the same reservation.
+  quotaSettled: boolean;
   createdAt: Date;
   startedAt: Date | null;
   finishedAt: Date | null;
+  // Set only for anonymous-trial jobs (api/middleware/identity.ts) — a TTL
+  // index (below) makes Mongo delete these automatically 24h after creation.
+  // Never set for a signed-in user's job, which is how the same index leaves
+  // real accounts' jobs alone.
+  anonymousExpiresAt: Date | null;
 }
 
 export type JobInstance = HydratedDocument<JobAttrs>;
@@ -184,12 +202,16 @@ const JobMongooseSchema = new Schema<JobAttrs>(
     costCents: { type: Number, default: 0 },
     summaryId: { type: String, default: null },
     error: { type: String, default: null },
+    reservedPages: { type: Number, default: 0 },
+    quotaSettled: { type: Boolean, default: false },
     startedAt: { type: Date, default: null },
     finishedAt: { type: Date, default: null },
+    anonymousExpiresAt: { type: Date, default: null },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );
 
 JobMongooseSchema.index({ userId: 1, createdAt: -1 });
+JobMongooseSchema.index({ anonymousExpiresAt: 1 }, { expireAfterSeconds: 0 });
 
 export const JobModel = model<JobAttrs>('Job', JobMongooseSchema);

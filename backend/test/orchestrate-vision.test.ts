@@ -32,6 +32,7 @@ vi.mock('../src/lib/storage', () => ({
 import { getMongoConnection } from '../src/lib/mongo';
 import { JobModel } from '../src/models/Job';
 import { SummaryModel } from '../src/models/Summary';
+import { UsageModel } from '../src/models/Usage';
 import { processJob } from '../src/pipeline/orchestrate';
 import type { Chunk } from '../src/pipeline/chunk';
 import type { VisionChunk } from '../src/pipeline/chunkVision';
@@ -57,6 +58,7 @@ afterAll(async () => {
   if (infraAvailable) {
     await JobModel.deleteMany({ userId: { $regex: /^test-vision-orch-/ } });
     await SummaryModel.deleteMany({ userId: { $regex: /^test-vision-orch-/ } });
+    await UsageModel.deleteMany({ userId: { $regex: /^test-vision-orch-/ } });
   }
 });
 

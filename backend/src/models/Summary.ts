@@ -11,6 +11,8 @@ export interface SummaryAttrs {
   connections: Connection[];
   version: number;
   createdAt: Date;
+  // See models/Job.ts's anonymousExpiresAt — same TTL-cleanup mechanism.
+  anonymousExpiresAt: Date | null;
 }
 
 export type SummaryInstance = HydratedDocument<SummaryAttrs>;
@@ -89,8 +91,13 @@ const SummaryMongooseSchema = new Schema<SummaryAttrs>(
     problems: { type: Schema.Types.Mixed, default: [] },
     connections: { type: [ConnectionMongooseSchema], default: [] },
     version: { type: Number, default: 1 },
+    anonymousExpiresAt: { type: Date, default: null },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );
+
+// The library's paginated "past summaries for this user" query (api/routes/library.ts).
+SummaryMongooseSchema.index({ userId: 1, createdAt: -1 });
+SummaryMongooseSchema.index({ anonymousExpiresAt: 1 }, { expireAfterSeconds: 0 });
 
 export const SummaryModel = model<SummaryAttrs>('Summary', SummaryMongooseSchema);

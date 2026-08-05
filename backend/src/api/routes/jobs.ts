@@ -6,7 +6,12 @@ import { JobModel, type JobInstance } from '../../models/Job';
 import { enqueueSummarizeJob } from '../../worker/queue';
 import { computeJobProgress } from '../../pipeline/jobProgress';
 import { computeSseSnapshot, snapshotChanged, isTerminal } from '../../pipeline/sseSnapshot';
+import { estimateCostCents } from '../../pipeline/quota';
+import { reserveQuota, releaseQuota, QuotaExceededError } from '../../lib/quota';
+import { env } from '../../config/env';
 import { asyncHandler } from '../asyncHandler';
+import { anonymousExpiryFor } from '../middleware/identity';
+import { perUserJobLimit, perIpJobLimit } from '../middleware/rateLimit';
 import type { JobDTO } from '../../contracts';
 
 export const jobsRouter = Router();
@@ -33,6 +38,8 @@ function toJobDTO(job: JobInstance): JobDTO {
 // AI-touching step happens in the worker (reliability invariant 1).
 jobsRouter.post(
   '/',
+  perUserJobLimit,
+  perIpJobLimit,
   asyncHandler(async (req, res) => {
     const parsed = CreateJobRequestSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -40,7 +47,8 @@ jobsRouter.post(
       return;
     }
 
-    const { documentIds, depth, language, userId } = parsed.data;
+    const { documentIds, depth, language, confirmed } = parsed.data;
+    const { userId, plan } = req.identity;
 
     for (const documentId of documentIds) {
       if (!mongoose.Types.ObjectId.isValid(documentId)) {
@@ -49,10 +57,49 @@ jobsRouter.post(
       }
     }
 
-    const foundCount = await DocumentModel.countDocuments({ _id: { $in: documentIds }, userId });
-    if (foundCount !== documentIds.length) {
+    // Scoping by the caller's own userId is what makes this an ownership
+    // check, not just an existence check — a documentId belonging to another
+    // identity simply won't be found, and comes back identical to a bad id
+    // (404), never a distinguishing 403 (docs/studysheet-milestones.md M8:
+    // "a user cannot read another user's document"). Fetching the full
+    // documents (not just a count) also gives the page-type breakdown the
+    // cost guard and quota reservation below both need.
+    const documents = await DocumentModel.find({ _id: { $in: documentIds }, userId });
+    if (documents.length !== documentIds.length) {
       res.status(404).json({ error: 'document_not_found' });
       return;
+    }
+
+    const totalPages = documents.reduce((sum, doc) => sum + doc.pageCount, 0);
+    const visionPages = documents.reduce((sum, doc) => sum + doc.visionPageCount, 0);
+    const textPages = totalPages - visionPages;
+
+    // Cost guard (docs/studysheet-build-prompt.md §12 "Abuse and margin
+    // protection"): shown *before* the job runs, per §12's "never surprise a
+    // student with a wall" — the client re-submits the identical request
+    // with confirmed:true once the user has accepted the estimate. Checked
+    // before reserving quota so a rejected-for-confirmation attempt doesn't
+    // tie up any allowance.
+    const estimatedCostCents = estimateCostCents(textPages, visionPages);
+    if (estimatedCostCents > env.COST_GUARD_CENTS && !confirmed) {
+      res.status(402).json({ error: 'cost_confirmation_required', estimatedCostCents, pages: totalPages });
+      return;
+    }
+
+    try {
+      await reserveQuota(userId, plan, totalPages);
+    } catch (err) {
+      if (err instanceof QuotaExceededError) {
+        res.status(402).json({
+          error: 'quota_exceeded',
+          allowance: err.allowance,
+          used: err.used,
+          reserved: err.reserved,
+          requested: err.requested,
+        });
+        return;
+      }
+      throw err;
     }
 
     const job = await JobModel.create({
@@ -61,6 +108,8 @@ jobsRouter.post(
       status: 'queued',
       stage: 'queued',
       config: { depth, language },
+      reservedPages: totalPages,
+      anonymousExpiresAt: anonymousExpiryFor(req.identity),
     });
 
     try {
@@ -83,6 +132,7 @@ jobsRouter.post(
       ]);
     } catch (err) {
       await JobModel.findByIdAndDelete(job.id);
+      await releaseQuota(userId, plan, totalPages);
       req.log?.error({ err }, 'failed to enqueue job — queue unreachable');
       res.status(503).json({ error: 'queue_unavailable' });
       return;
@@ -103,7 +153,7 @@ jobsRouter.get(
     }
 
     const job = await JobModel.findById(jobId);
-    if (!job) {
+    if (!job || job.userId !== req.identity.userId) {
       res.status(404).json({ error: 'not_found' });
       return;
     }
@@ -142,7 +192,7 @@ jobsRouter.get(
     }
 
     const initial = await JobModel.findById(jobId);
-    if (!initial) {
+    if (!initial || initial.userId !== req.identity.userId) {
       res.status(404).end();
       return;
     }

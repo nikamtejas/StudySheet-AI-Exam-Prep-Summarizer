@@ -3,6 +3,7 @@ import { validateFileBasics } from './validate';
 import { probeDocument } from './probe';
 import { rasterizePages } from './rasterize';
 import { downloadObject, uploadObject } from '../lib/storage';
+import { isDuplicateKeyError } from '../lib/errors';
 import { DocumentModel, type DocumentInstance } from '../models/Document';
 import type { DocumentDTO, SourceType } from '../contracts';
 
@@ -14,17 +15,14 @@ export interface IngestParams {
   // the presign → upload → register flow in docs/studysheet-build-prompt.md §10.
   r2Key: string;
   sourceType: SourceType;
+  // Set only for an anonymous-trial identity (api/middleware/identity.ts) —
+  // see models/Document.ts's TTL index. Null for a real account.
+  anonymousExpiresAt?: Date | null;
 }
 
 export interface IngestResult {
   document: DocumentDTO;
   dedup: boolean;
-}
-
-const MONGO_DUPLICATE_KEY_CODE = 11000;
-
-function isDuplicateKeyError(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as { code?: number }).code === MONGO_DUPLICATE_KEY_CODE;
 }
 
 function computeOverrideNotice(
@@ -63,7 +61,7 @@ function toDTO(doc: DocumentInstance): DocumentDTO {
 // any model (that starts at M2) and never does the expensive work twice for
 // the same user+file (docs/studysheet-milestones.md M1 done-criteria).
 export async function ingestDocument(params: IngestParams): Promise<IngestResult> {
-  const { userId, filename, r2Key, sourceType } = params;
+  const { userId, filename, r2Key, sourceType, anonymousExpiresAt = null } = params;
 
   const buffer = await downloadObject(r2Key);
   validateFileBasics(buffer, filename);
@@ -113,6 +111,7 @@ export async function ingestDocument(params: IngestParams): Promise<IngestResult
       textPageCount: probeResult.textPageCount,
       visionPageCount: probeResult.visionPageCount,
       overrideNotice,
+      anonymousExpiresAt,
     });
     return { document: toDTO(created), dedup: false };
   } catch (err) {
