@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { cookies } from 'next/headers';
-import { getSummary, getSummarySource } from '@/lib/api';
+import { getSummary, getSummarySource, getDeckExportUrl } from '@/lib/api';
 import { PreviewProvider } from '@/components/preview/PreviewContext';
 import { HighlightToggle } from '@/components/preview/HighlightToggle';
 import { HighlightScope } from '@/components/preview/HighlightScope';
@@ -41,9 +42,29 @@ export default async function PreviewPage({ params }: { params: Promise<{ summar
     <main className="bg-ink text-paper">
       <PreviewProvider>
         <div className="flex h-screen flex-col">
-          <header className="border-edge flex items-center justify-between border-b px-6 py-3">
+          <header className="border-edge flex flex-wrap items-center justify-between gap-3 border-b px-6 py-3">
             <h1 className="font-display text-lg">Study sheet</h1>
-            <HighlightToggle />
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <Link href="/review" className="text-muted hover:text-paper">
+                Review
+              </Link>
+              <Link href={`/self-test/${summaryId}`} className="text-muted hover:text-paper">
+                Self-test
+              </Link>
+              {summary.deckId && (
+                <span className="text-muted font-mono text-xs">
+                  Export:{' '}
+                  <a href={getDeckExportUrl(summary.deckId, 'anki-basic')} className="hover:text-teal underline">
+                    Anki
+                  </a>{' '}
+                  ·{' '}
+                  <a href={getDeckExportUrl(summary.deckId, 'quizlet')} className="hover:text-teal underline">
+                    Quizlet
+                  </a>
+                </span>
+              )}
+              <HighlightToggle />
+            </div>
           </header>
           <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-2">
             <div className="overflow-y-auto">

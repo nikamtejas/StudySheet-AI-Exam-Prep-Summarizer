@@ -63,6 +63,7 @@ export const SummarySchema = z.object({
   connections: z.array(ConnectionSchema),
   version: z.number().int().positive(),
   createdAt: z.string(),
+  deckId: z.string().nullable(),
 });
 export type SummaryDTO = z.infer<typeof SummarySchema>;
 

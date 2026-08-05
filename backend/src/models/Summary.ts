@@ -13,6 +13,12 @@ export interface SummaryAttrs {
   createdAt: Date;
   // See models/Job.ts's anonymousExpiresAt — same TTL-cleanup mechanism.
   anonymousExpiresAt: Date | null;
+  // Set once pipeline/decks.ts generates a deck for this summary — M9's
+  // "every summary produces a deck automatically" (§5), hooked into
+  // pipeline/orchestrate.ts right after this document is created. Null for
+  // summaries that predate M9 or whose auto-generation failed; GET
+  // /api/decks/:summaryId generates lazily on first request in that case.
+  deckId: string | null;
 }
 
 export type SummaryInstance = HydratedDocument<SummaryAttrs>;
@@ -92,6 +98,7 @@ const SummaryMongooseSchema = new Schema<SummaryAttrs>(
     connections: { type: [ConnectionMongooseSchema], default: [] },
     version: { type: Number, default: 1 },
     anonymousExpiresAt: { type: Date, default: null },
+    deckId: { type: String, default: null },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );

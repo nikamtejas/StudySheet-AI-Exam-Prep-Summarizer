@@ -20,6 +20,8 @@ import { solveRouter } from './routes/solve';
 import { libraryRouter } from './routes/library';
 import { usageRouter } from './routes/usage';
 import { adminRouter } from './routes/admin';
+import { decksRouter } from './routes/decks';
+import { reviewRouter } from './routes/review';
 
 export function createApp(): Express {
   const app = express();
@@ -72,6 +74,8 @@ export function createApp(): Express {
   app.use('/api/library', libraryRouter);
   app.use('/api/usage', usageRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/decks', decksRouter);
+  app.use('/api/review', reviewRouter);
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path });

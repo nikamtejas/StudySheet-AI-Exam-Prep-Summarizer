@@ -11,6 +11,11 @@ import type {
   IdentityResponse,
   UsageResponse,
   LibraryResponse,
+  DeckResponse,
+  ReviewQueueResponse,
+  ReviewGradeResponse,
+  Grade,
+  ExportFormat,
 } from '@/contracts';
 
 // docs/studysheet-build-prompt.md §10/§6: the ONE place frontend/ talks to
@@ -265,4 +270,26 @@ export async function signOut(): Promise<void> {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ csrfToken }),
   });
+}
+
+// docs/studysheet-build-prompt.md §5/§10 — the memory layer (M9). Generates
+// the deck lazily server-side if the automatic post-summary hook hasn't run
+// yet (see backend's pipeline/orchestrate.ts).
+export function getDeck(summaryId: string, cookieHeader?: string): Promise<DeckResponse> {
+  return apiFetch(`/api/decks/${summaryId}`, cookieHeader ? { headers: { Cookie: cookieHeader } } : undefined);
+}
+
+// Returns a plain URL rather than fetching — export is a file download
+// (Content-Disposition: attachment), not JSON, so callers just point an
+// <a href> or window.location at this.
+export function getDeckExportUrl(deckId: string, format: ExportFormat): string {
+  return `${API_URL}/api/decks/${deckId}/export?format=${format}`;
+}
+
+export function getReviewQueue(): Promise<ReviewQueueResponse> {
+  return apiFetch('/api/review/queue');
+}
+
+export function submitReviewGrade(cardId: string, grade: Grade, msTaken: number): Promise<ReviewGradeResponse> {
+  return apiFetch(`/api/review/${cardId}`, { method: 'POST', body: JSON.stringify({ grade, msTaken }) });
 }

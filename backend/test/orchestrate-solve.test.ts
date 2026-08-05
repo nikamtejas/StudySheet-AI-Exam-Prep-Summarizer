@@ -18,6 +18,8 @@ import { getMongoConnection } from '../src/lib/mongo';
 import { JobModel } from '../src/models/Job';
 import { SummaryModel } from '../src/models/Summary';
 import { UsageModel } from '../src/models/Usage';
+import { DeckModel } from '../src/models/Deck';
+import { CardModel } from '../src/models/Card';
 import { processJob } from '../src/pipeline/orchestrate';
 import type { ChunkProblem } from '../src/pipeline/map';
 
@@ -48,6 +50,8 @@ afterAll(async () => {
     await JobModel.deleteMany({ userId: { $regex: new RegExp(`^${TEST_USER_PREFIX}`) } });
     await SummaryModel.deleteMany({ userId: { $regex: new RegExp(`^${TEST_USER_PREFIX}`) } });
     await UsageModel.deleteMany({ userId: { $regex: new RegExp(`^${TEST_USER_PREFIX}`) } });
+    await DeckModel.deleteMany({ userId: { $regex: new RegExp(`^${TEST_USER_PREFIX}`) } });
+    await CardModel.deleteMany({ userId: { $regex: new RegExp(`^${TEST_USER_PREFIX}`) } });
   }
 });
 

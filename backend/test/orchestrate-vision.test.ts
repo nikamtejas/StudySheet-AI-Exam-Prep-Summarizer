@@ -33,6 +33,8 @@ import { getMongoConnection } from '../src/lib/mongo';
 import { JobModel } from '../src/models/Job';
 import { SummaryModel } from '../src/models/Summary';
 import { UsageModel } from '../src/models/Usage';
+import { DeckModel } from '../src/models/Deck';
+import { CardModel } from '../src/models/Card';
 import { processJob } from '../src/pipeline/orchestrate';
 import type { Chunk } from '../src/pipeline/chunk';
 import type { VisionChunk } from '../src/pipeline/chunkVision';
@@ -59,6 +61,8 @@ afterAll(async () => {
     await JobModel.deleteMany({ userId: { $regex: /^test-vision-orch-/ } });
     await SummaryModel.deleteMany({ userId: { $regex: /^test-vision-orch-/ } });
     await UsageModel.deleteMany({ userId: { $regex: /^test-vision-orch-/ } });
+    await DeckModel.deleteMany({ userId: { $regex: /^test-vision-orch-/ } });
+    await CardModel.deleteMany({ userId: { $regex: /^test-vision-orch-/ } });
   }
 });
 

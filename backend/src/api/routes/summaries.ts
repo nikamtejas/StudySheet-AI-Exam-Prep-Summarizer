@@ -37,6 +37,7 @@ function toSummaryDTO(doc: SummaryInstance): SummaryDTO {
     connections: doc.connections,
     version: doc.version,
     createdAt: doc.createdAt.toISOString(),
+    deckId: doc.deckId,
   };
 }
 

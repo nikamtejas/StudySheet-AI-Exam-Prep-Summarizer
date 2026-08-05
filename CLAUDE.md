@@ -423,7 +423,83 @@ which do receive and store the cookie correctly, confirmed directly. Documented 
 the real fix means the page manually copying `Set-Cookie` headers from its own backend fetch onto
 its response, which is more surface area than this specific edge case's stakes justify right now.
 
-Next up: **M9 — Memory layer** (see docs/studysheet-milestones.md).
+**M9 — Memory layer: done.** Every summary now produces a flashcard deck automatically —
+term→definition, cloze, method, and exam-question cards — with a real SM-2 spaced-repetition
+scheduler, Anki/Quizlet export, a review UI with offline-tolerant grading, and a self-test mode.
+Zero AI calls anywhere in this milestone: deck generation is pure JSON/string transformation over
+an already-synthesized `Summary`.
+
+**Anki export is TSV, not `.apkg` — a deliberate choice, not a shortcut.** §5 offers
+"`.apkg` via genanki-equivalent, or TSV" as interchangeable. A `.apkg` is a zipped SQLite database
+that has to exactly match Anki's internal schema; the only maintained Node library for it hasn't
+published in over a year, and there's no way to confirm a generated file actually opens in real
+Anki without the Anki desktop app, which isn't available in this environment. TSV is Anki's own
+documented plain-text import format (File → Import, user picks the note type), verifiable by
+inspection against real documentation instead of trust in a third-party binary-format library.
+`pipeline/export/ankiTsv.ts` produces **two separate blobs** (Basic, Cloze) rather than one file —
+Anki's Cloze note type needs a single Text field with `{{c1::...}}` markup, which can't share a
+file with Basic cards' Front/Back columns. `GET /api/decks/:id/export` exposes this as three
+concrete formats (`anki-basic`/`anki-cloze`/`quizlet`), not one ambiguous `format=anki`.
+**Not manually verified by opening real Anki or Quizlet** — flagged explicitly rather than claimed,
+same as M7's Lighthouse gap and M8's Safari-cookie gap. Both exports are correctness-tested by
+inspection instead (`test/export.test.ts`): exact TSV/CSV shape, tab/quote/comma escaping, and the
+cloze→blanked-sentence adaptation for Quizlet (which has no fill-in-blank concept of its own).
+
+**SM-2 (`pipeline/sm2.ts`) is the Anki-style four-button variant** (again/hard/good/easy), not
+the original 6-point-quality algorithm — day-granularity intervals only, matching `Card.srs
+.intervalDays`'s shape (no intraday relearning steps; a lapsed card comes back in 1 day). Ease
+floor 1.3, starting ease 2.5, first/second good reps fixed at 1/6 days, third+ multiplies the
+previous interval by ease. 22 unit tests cover every branch the M9 gate names explicitly: ease
+never drops below 1.3 even after 50 consecutive lapses or hards, a lapse resets `reps` to 0 while
+`lapses` only ever increases, and interval growth compounds correctly across consecutive grades.
+
+**Exam-question cards only exist when the question has a stored `hint`** — there's no canonical
+answer to an ExamQuestion anywhere in `Summary` (M2 never generates one), and reliability
+invariant 5's "never fabricate" spirit rules out inventing one just to fill a card. A question
+without a hint simply produces no card — visible in a lower `cardCount`, never a fabricated back.
+
+**Automatic deck generation is hooked directly into `pipeline/orchestrate.ts`**, right after
+`SummaryModel.create()` and before the job is marked `completed` — safe despite reliability
+invariant 1 ("no AI call in a request/response cycle") because this is worker-side and genuinely
+has zero AI calls, confirmed directly (`test/decks.test.ts` mocks `@anthropic-ai/sdk` and asserts
+it's never invoked). Idempotent via `Summary.deckId` as the checkpoint — `GET /api/decks/:summaryId`
+generates lazily on first request for any summary that predates this hook or whose auto-generation
+somehow didn't run, and calling either path twice never creates duplicate cards (proven, not just
+designed that way).
+
+**The review queue's performance gate was proven, not assumed** — `Card.userId + srs.dueAt` is a
+real compound index (models/Card.ts), and `test/review-queue-perf.test.ts` inserts 10,000 real
+cards into Mongo and measures the actual due-cards query: 9ms, against a 50ms budget.
+
+**Offline-tolerant grade queueing (`frontend/src/lib/reviewQueue.ts`) is a real local queue, not
+just a retry wrapper** — every grade goes through `addToQueue`/`saveQueue` (localStorage) before
+ever reaching the network; `flushQueue` submits in order and stops at the first failure, leaving
+it and everything after it queued, since SM-2's interval math depends on grading order (each
+grade's result depends on the card's state as of the previous one — reordering would silently
+corrupt a card's schedule). 9 unit tests cover round-tripping through storage, partial-flush-then-
+retry, and order preservation across a failure.
+
+**Found and fixed a real test-harness gap while writing this milestone's frontend tests:** jsdom
+(this project's Node 26 + jsdom 29 combination, confirmed directly) leaves `window.localStorage`
+unusable regardless of the configured environment origin — not a code bug, an environment quirk.
+Rather than fight jsdom's Web Storage implementation, `reviewQueue.test.ts` stubs
+`globalThis.localStorage` directly via `vi.stubGlobal` with a minimal in-memory implementation —
+the standard, documented pattern for exactly this situation. Any future frontend test needing
+`localStorage`/`sessionStorage` should do the same rather than assume jsdom's own support works.
+
+**Self-test mode reuses the review-grading endpoint** rather than maintaining a parallel scoring
+path — its three confidence tags (got it / shaky / no idea) map directly onto SM-2 grades
+(good / hard / again), so there's exactly one place a card's spaced-repetition state ever changes,
+regardless of which UI produced the grade.
+
+**Not verified in this environment:** actual browser interaction with the review/self-test session
+UIs (button clicks, reveal-then-grade flow) — the Claude-in-Chrome extension was unavailable for
+this entire session, same as M5–M8. Verified instead: the underlying pure logic via unit tests
+(sm2.ts, reviewQueue.ts, cloze.ts, deckGeneration.ts), every backend endpoint via direct curl
+against a real running server with real Mongo data, and that both pages' SSR shells render the
+correct real data server-side.
+
+Next up: **M10 — Billing** (see docs/studysheet-milestones.md).
 
 Update this section when a milestone's gate passes, before starting the next one.
 

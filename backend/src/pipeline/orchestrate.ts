@@ -4,6 +4,7 @@ import { DocumentModel } from '../models/Document';
 import { downloadObject } from '../lib/storage';
 import { logger } from '../lib/logger';
 import { commitQuota, releaseQuota, resolvePlan } from '../lib/quota';
+import { generateDeckForSummary } from './decks';
 import { prepareText } from './prepare';
 import { chunkPages } from './chunk';
 import { chunkVisionPages } from './chunkVision';
@@ -198,6 +199,12 @@ export async function processJob(jobId: string): Promise<void> {
         version: 1,
         anonymousExpiresAt: job.anonymousExpiresAt,
       });
+
+      // §5: "Every summary produces a deck automatically... no model
+      // calls" — safe to run synchronously here despite reliability
+      // invariant 1 ("no AI call in a request/response cycle"), since this
+      // is worker-side and pure JSON transformation, not a request cycle.
+      await generateDeckForSummary(summary);
 
       job.summaryId = summary.id;
       job.stage = 'done';
