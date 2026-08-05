@@ -22,6 +22,8 @@ import { usageRouter } from './routes/usage';
 import { adminRouter } from './routes/admin';
 import { decksRouter } from './routes/decks';
 import { reviewRouter } from './routes/review';
+import { webhooksRouter } from './routes/webhooks';
+import { billingRouter } from './routes/billing';
 
 export function createApp(): Express {
   const app = express();
@@ -44,6 +46,20 @@ export function createApp(): Express {
       autoLogging: { ignore: (req) => req.url === '/health' },
     }),
   );
+
+  // docs/studysheet-build-prompt.md §10: "Webhook routes are exempt from
+  // CORS and CSRF and verify provider signatures on the raw body — mount
+  // them before the JSON body parser or signature checks will fail."
+  // Mounted here, ahead of cors()/express.json()/cookieParser()/
+  // resolveIdentity/csrfProtection, so none of those ever run for a webhook
+  // request — the router's own express.raw() (routes/webhooks.ts) is what
+  // gives it the untouched raw body signature verification needs.
+  // ensureMongoConnected is scoped to this path explicitly since the
+  // general '/api' mount for it below is registered after this and would
+  // never be reached (this router fully handles the request, it never
+  // calls next()).
+  app.use('/api/webhooks', ensureMongoConnected, webhooksRouter);
+
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
   app.use(express.json());
   app.use(cookieParser());
@@ -76,6 +92,7 @@ export function createApp(): Express {
   app.use('/api/admin', adminRouter);
   app.use('/api/decks', decksRouter);
   app.use('/api/review', reviewRouter);
+  app.use('/api/billing', billingRouter);
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path });

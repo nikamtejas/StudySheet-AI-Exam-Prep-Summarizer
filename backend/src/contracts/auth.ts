@@ -27,15 +27,9 @@ export const IdentityResponseSchema = z.object({
 });
 export type IdentityResponse = z.infer<typeof IdentityResponseSchema>;
 
-export const UsageResponseSchema = z.object({
-  plan: PlanTierSchema,
-  period: z.string(),
-  pagesAllowance: z.number().int().nonnegative(),
-  pagesUsed: z.number().int().nonnegative(),
-  pagesReserved: z.number().int().nonnegative(),
-  pagesRemaining: z.number().int(),
-});
-export type UsageResponse = z.infer<typeof UsageResponseSchema>;
+// The M8 UsageResponseSchema that used to live here was removed in M10 —
+// GET /api/usage now returns contracts/billing.ts's BillingUsageResponse,
+// which adds subscriptionStatus/renewalDate/pausedUntil to the same fields.
 
 export const LibraryItemSchema = z.object({
   summaryId: z.string(),

@@ -499,7 +499,90 @@ this entire session, same as M5–M8. Verified instead: the underlying pure logi
 against a real running server with real Mongo data, and that both pages' SSR shells render the
 correct real data server-side.
 
-Next up: **M10 — Billing** (see docs/studysheet-milestones.md).
+**M10 — Billing: done.** Stripe and Razorpay checkout, a real entitlement state machine driven
+entirely by webhooks, localized plans/allowances per market, student email verification, pause,
+and a usage dashboard with renewal date. No real Stripe/Razorpay account exists in this
+environment — every piece that needs one degrades cleanly and is verified via real cryptographic
+signature tests instead of a live account, same pattern as M2's Anthropic key and M8's Google
+OAuth.
+
+**Webhooks are genuinely the only source of entitlement — proven end-to-end with real HMAC
+signatures, no mocked SDK calls.** Stripe's SDK ships `generateTestHeaderString` specifically for
+this: it produces a signature for a synthetic payload the same way Stripe's real servers would, so
+`stripe.webhooks.constructEvent`'s actual verification logic gets exercised for real
+(`test/stripe.test.ts`). Razorpay's SDK has no equivalent helper, so `test/razorpay.test.ts`
+computes the HMAC itself with Node's own `crypto` (confirmed directly from Razorpay's own SDK
+source that their scheme is plain `HMAC-SHA256(body, secret)` hex-compared) and checks
+`Razorpay.validateWebhookSignature` — a static method, no client instance or live account needed —
+accepts it. Both reject a tampered payload and a wrong-secret signature. Went further than the two
+unit-test files: ran a real signed `checkout.session.completed` webhook against a live local
+server with a real signed-in user, confirmed `User.plan` flipped to `student`, replayed the
+identical event and confirmed exactly one `Subscription`/`WebhookEvent` document existed
+afterward — genuine proof of "replaying a webhook twice changes nothing," not just a design that
+looks idempotent.
+
+**`@auth/mongodb-adapter`'s ESM-in-CommonJS problem doesn't recur here** — `stripe` and `razorpay`
+are both plain CommonJS packages, confirmed directly before installing (M8's `lib/esm.ts` trick
+isn't needed anywhere in this milestone).
+
+**"Degrades to free at period end, keeping their library" is enforced at read time, not by a
+scheduled job.** `pipeline/billingEvents.ts`'s `cancelSubscription()` deliberately never touches
+`User.plan` — a canceled subscription still owes the user the period they already paid for. The
+actual enforcement lives in `lib/quota.ts`'s `resolveBilling()`: once a canceled subscription's
+`periodEnd` has passed, it returns the free-tier allowance and lazily corrects `User.plan` back to
+`'free'` in the same call — no cron needed, and every quota-touching code path (job creation, the
+usage dashboard) already goes through this one function, so they can't drift on what a user is
+actually entitled to. Confirmed directly: activated a subscription with a `periodEnd` in the past,
+called `resolveBilling`, watched the allowance drop to 30 and `User.plan` flip to `free` in the
+same call. Nothing anywhere deletes a Summary/Document/Deck based on subscription status —
+"keeping their library" falls out of that logic never having been written, not a special case.
+
+**Subscription periods are now genuinely anchored to real dates, closing a gap M8 explicitly left
+open.** `pipeline/quota.ts`'s `periodFor()` used to bucket every paid plan into the current
+calendar month as a placeholder (documented in `project_m8_accounts_decisions.md` as "until M10's
+real `Subscription.periodStart/periodEnd` exists"). It now takes an optional `periodStart` and
+returns that subscription's own anchor date instead — a semester pass's 2000 pages over 4 months is
+a real single period spanning 4 months, not four separate monthly resets. The monthly-calendar
+fallback only fires when no Subscription record can be resolved at all.
+
+**Checkout period dates are computed from our own plan config, not fetched from Stripe's
+Subscription object** — a deliberate simplification, not an oversight. Reading `current_period_
+start/end` off a live Stripe object would need either an extra API round-trip in the webhook
+handler or trusting the shape of an event payload this environment has no live account to actually
+receive and inspect. Computing `now` / `now + N days` from the plan's own interval avoids that
+dependency entirely; a real deployment with a live account should switch to Stripe's authoritative
+fields once that switch can actually be tested end to end.
+
+**Downgrade has no dedicated code path — by design, given a real Razorpay/Stripe limitation.**
+Checkout uses Stripe's inline `price_data` (no persistent Price/Product objects) and Razorpay
+Plans created ad hoc per checkout, specifically so a plan's price/allowance can live in one place
+(`config/plans.ts`) instead of being duplicated into each provider's dashboard. The cost is that
+neither provider's hosted "change plan" portal feature works without persistent, pre-configured
+Prices — which needs a live account to set up and verify. A user who wants to move from Pro to
+Student cancels (keeps access until period end, per the degrade logic above) and starts a fresh
+checkout for the new tier; the existing webhook handlers cover both halves of that without any
+additional code. Upgrade, pause, and cancel all have direct, tested paths.
+
+**Student verification is a real, working email-domain check** (`.edu` / `.ac.<country>`,
+anchored so `notedu.com` doesn't false-positive) — gates checkout for the `student` tier
+specifically, matching §12's "verify student status... or the discount becomes your only tier."
+SheerID itself needs a paid account this environment doesn't have; the domain check is the real,
+functioning fallback the spec names as an alternative, not a stub.
+
+**Razorpay Payment Links (used for the one-time Semester pass) require a customer phone number —
+a real, documented data gap.** This app has never collected one (Auth.js only asks for email); the
+checkout code accepts an optional `customerPhone` and defaults to an empty string when absent,
+which will fail against Razorpay's real API. Flagged rather than silently worked around — a real
+Razorpay Semester-pass launch needs a phone-collection step added to checkout first.
+
+**Not measurable in this environment, flagged rather than claimed:** "Measured gross margin on the
+Student tier holds above 70% at 90th-percentile beta usage" needs real beta users generating real
+usage and real payments — there is no way to produce that number without a live product and paying
+customers. `costCents` is tracked on every Job (reliability invariant 8, unchanged since M2), which
+is the raw data this measurement would need once real usage exists; computing the actual margin is
+future work, not something buildable here.
+
+Next up: **M11 — Hardening and launch** (see docs/studysheet-milestones.md).
 
 Update this section when a milestone's gate passes, before starting the next one.
 

@@ -7,10 +7,18 @@ describe('periodFor', () => {
     expect(periodFor('free', new Date('2027-01-01'))).toBe('lifetime');
   });
 
-  it('is the calendar month for paid plans, resetting across a month boundary', () => {
-    expect(periodFor('student', new Date('2026-08-04T12:00:00Z'))).toBe('2026-08');
-    expect(periodFor('pro', new Date('2026-01-31T23:59:59Z'))).toBe('2026-01');
-    expect(periodFor('semester', new Date('2026-12-01T00:00:00Z'))).toBe('2026-12');
+  it('falls back to the calendar month for a paid plan with no resolvable Subscription period', () => {
+    expect(periodFor('student', undefined, new Date('2026-08-04T12:00:00Z'))).toBe('2026-08');
+    expect(periodFor('pro', undefined, new Date('2026-01-31T23:59:59Z'))).toBe('2026-01');
+    expect(periodFor('semester', undefined, new Date('2026-12-01T00:00:00Z'))).toBe('2026-12');
+  });
+
+  it("uses the real Subscription.periodStart when one exists — a semester pass's 4-month span is one period, not four monthly resets", () => {
+    const periodStart = new Date('2026-08-04T12:00:00Z');
+    expect(periodFor('semester', periodStart)).toBe(periodStart.toISOString());
+    // Still the same period a month later, since periodStart hasn't changed
+    // (no monthly reset — the point of anchoring to the real subscription).
+    expect(periodFor('semester', periodStart, new Date('2026-09-04T12:00:00Z'))).toBe(periodStart.toISOString());
   });
 });
 

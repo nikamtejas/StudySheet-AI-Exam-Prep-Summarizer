@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { UsageModel } from '../models/Usage';
 import { UserModel } from '../models/User';
+import { SubscriptionModel, type SubscriptionInstance } from '../models/Subscription';
 import { PLAN_ALLOWANCES, periodFor } from '../pipeline/quota';
 import { isDuplicateKeyError } from './errors';
 import type { PlanTier } from '../contracts';
@@ -31,6 +32,51 @@ export async function resolvePlan(userId: string): Promise<PlanTier> {
   return user?.plan ?? 'free';
 }
 
+export interface BillingInfo {
+  allowance: number;
+  period: string;
+  subscription: SubscriptionInstance | null;
+}
+
+// The single place that turns {userId, plan} into "what allowance, what
+// period" — every quota operation and the usage dashboard (api/routes/usage.ts)
+// go through this so they can never drift apart on what a user's real,
+// market-specific entitlement is. Free is a hardcoded global constant (no
+// Subscription document exists for a free account); a paid plan's allowance
+// and period both come from that user's own Subscription — the market they
+// actually signed up under, not a recomputed guess.
+//
+// This is also where docs/studysheet-milestones.md M10's "degrades to free
+// at period end" actually gets enforced: pipeline/billingEvents.ts's
+// cancelSubscription() deliberately never touches User.plan (a canceled
+// subscription still owes the user the period they already paid for), so
+// the only place that matters — whether this reservation/read should be
+// billed at the paid allowance or the free one — has to check the real
+// periodEnd itself, not just the cached tier string. Once a canceled
+// subscription's periodEnd has passed, User.plan gets lazily corrected here
+// too, so this doesn't need a scheduled job to eventually reflect reality.
+export async function resolveBilling(userId: string, plan: PlanTier): Promise<BillingInfo> {
+  if (plan === 'free') {
+    return { allowance: PLAN_ALLOWANCES.free, period: periodFor(plan), subscription: null };
+  }
+
+  const subscription = await SubscriptionModel.findOne({ userId }).sort({ periodEnd: -1 });
+  const lapsed = !subscription || (subscription.status === 'canceled' && new Date() > subscription.periodEnd);
+
+  if (lapsed) {
+    if (subscription) {
+      await UserModel.findByIdAndUpdate(userId, { plan: 'free' });
+    }
+    return { allowance: PLAN_ALLOWANCES.free, period: periodFor('free'), subscription: null };
+  }
+
+  return {
+    allowance: subscription.pageAllowance,
+    period: periodFor(plan, subscription.periodStart),
+    subscription,
+  };
+}
+
 async function ensureUsageDoc(userId: string, period: string): Promise<void> {
   try {
     await UsageModel.create({ userId, period });
@@ -55,8 +101,7 @@ async function ensureUsageDoc(userId: string, period: string): Promise<void> {
 // which would let a single first-ever request skip the check entirely
 // regardless of how many pages it asked for.
 export async function reserveQuota(userId: string, plan: PlanTier, pages: number): Promise<void> {
-  const period = periodFor(plan);
-  const allowance = PLAN_ALLOWANCES[plan];
+  const { allowance, period } = await resolveBilling(userId, plan);
 
   await ensureUsageDoc(userId, period);
 
@@ -82,7 +127,7 @@ export async function reserveQuota(userId: string, plan: PlanTier, pages: number
 // change between reservation and release.
 export async function releaseQuota(userId: string, plan: PlanTier, pages: number): Promise<void> {
   if (pages <= 0) return;
-  const period = periodFor(plan);
+  const { period } = await resolveBilling(userId, plan);
   await UsageModel.updateOne({ userId, period }, { $inc: { pagesReserved: -pages } });
 }
 
@@ -96,7 +141,7 @@ export async function commitQuota(
   visionPages: number,
   costCents: number,
 ): Promise<void> {
-  const period = periodFor(plan);
+  const { period } = await resolveBilling(userId, plan);
   await UsageModel.updateOne(
     { userId, period },
     {

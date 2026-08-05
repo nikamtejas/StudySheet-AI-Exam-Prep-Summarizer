@@ -1,11 +1,13 @@
 import { env } from '../config/env';
 import type { PlanTier } from '../contracts';
 
-// docs/studysheet-build-prompt.md §12 tiers table. Only 'free' is reachable
-// without M10's billing wiring (nothing promotes User.plan to any of the
-// others yet) — the rest are baked in now so the quota math is already
-// correct the moment a real Subscription can set one, per
-// docs/studysheet-milestones.md's own build order (M8 before M10).
+// docs/studysheet-build-prompt.md §12 tiers table — global-market defaults,
+// used as a fallback (see lib/quota.ts's resolveBilling) when a paid plan
+// somehow has no real Subscription document to read a market-specific
+// pageAllowance from. The real, authoritative allowance for a paid user
+// always comes from their own Subscription.pageAllowance (config/plans.ts,
+// snapshotted at checkout — market-specific, per §12's "adjust the
+// allowance, not just the price").
 export const PLAN_ALLOWANCES: Record<PlanTier, number> = {
   free: env.FREE_TIER_PAGES,
   student: 500,
@@ -14,13 +16,16 @@ export const PLAN_ALLOWANCES: Record<PlanTier, number> = {
 };
 
 // Free is a one-time 30 pages, never renewed by the calendar (§12: "Pages/
-// month ... Free: 30 (one-time)") — everyone else resets monthly. Semester's
-// 2000 is really "over 4 months, once", not monthly — but without M10's real
-// Subscription.periodStart/periodEnd to anchor a 4-month window, monthly
-// reset is a documented, deliberate simplification until billing exists (see
-// memory: project_m8_accounts_decisions.md).
-export function periodFor(plan: PlanTier, now: Date = new Date()): string {
+// month ... Free: 30 (one-time)"). Every paid plan's period is anchored to
+// its real Subscription.periodStart (M10) — a semester pass's "2000 total
+// over 4 months" is genuinely one period spanning 4 months, not 4 separate
+// monthly resets, because periodStart doesn't change until the subscription
+// itself renews or is replaced. The monthly-calendar fallback only fires for
+// a paid plan with no resolvable Subscription record, which shouldn't
+// normally happen — see lib/quota.ts's resolveBilling.
+export function periodFor(plan: PlanTier, periodStart?: Date, now: Date = new Date()): string {
   if (plan === 'free') return 'lifetime';
+  if (periodStart) return periodStart.toISOString();
   const year = now.getUTCFullYear();
   const month = String(now.getUTCMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;

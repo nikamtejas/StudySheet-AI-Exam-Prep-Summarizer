@@ -28,10 +28,13 @@ export async function AppNav() {
         <Link href="/library" className="text-muted hover:text-paper text-sm">
           Library
         </Link>
+        <Link href="/billing" className="text-muted hover:text-paper text-sm">
+          Billing
+        </Link>
         {usage && (
-          <span className="text-muted font-mono text-xs">
+          <Link href="/billing" className="text-muted hover:text-paper font-mono text-xs">
             {Math.max(usage.pagesRemaining, 0)} / {usage.pagesAllowance} pages left
-          </span>
+          </Link>
         )}
         {identity?.user ? (
           <AccountMenu email={identity.user.email} />

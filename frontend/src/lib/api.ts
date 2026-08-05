@@ -9,13 +9,19 @@ import type {
   SolveRequest,
   StandaloneSolveResponse,
   IdentityResponse,
-  UsageResponse,
   LibraryResponse,
   DeckResponse,
   ReviewQueueResponse,
   ReviewGradeResponse,
   Grade,
   ExportFormat,
+  BillingPlansResponse,
+  CheckoutRequest,
+  CheckoutResponse,
+  PortalResponse,
+  StudentVerifyResponse,
+  BillingUsageResponse,
+  Market,
 } from '@/contracts';
 
 // docs/studysheet-build-prompt.md §10/§6: the ONE place frontend/ talks to
@@ -213,7 +219,7 @@ export function getIdentity(cookieHeader?: string): Promise<IdentityResponse> {
   return apiFetch('/api/identity', cookieHeader ? { headers: { Cookie: cookieHeader } } : undefined);
 }
 
-export function getUsage(cookieHeader?: string): Promise<UsageResponse> {
+export function getUsage(cookieHeader?: string): Promise<BillingUsageResponse> {
   return apiFetch('/api/usage', cookieHeader ? { headers: { Cookie: cookieHeader } } : undefined);
 }
 
@@ -292,4 +298,24 @@ export function getReviewQueue(): Promise<ReviewQueueResponse> {
 
 export function submitReviewGrade(cardId: string, grade: Grade, msTaken: number): Promise<ReviewGradeResponse> {
   return apiFetch(`/api/review/${cardId}`, { method: 'POST', body: JSON.stringify({ grade, msTaken }) });
+}
+
+export function getBillingPlans(market: Market = 'global'): Promise<BillingPlansResponse> {
+  return apiFetch(`/api/billing/plans?market=${market}`);
+}
+
+export function createCheckout(req: CheckoutRequest & { market?: Market }): Promise<CheckoutResponse> {
+  return apiFetch('/api/billing/checkout', { method: 'POST', body: JSON.stringify(req) });
+}
+
+export function createBillingPortalSession(): Promise<PortalResponse> {
+  return apiFetch('/api/billing/portal', { method: 'POST', body: JSON.stringify({}) });
+}
+
+export function pauseBillingSubscription(): Promise<{ status: string }> {
+  return apiFetch('/api/billing/pause', { method: 'POST', body: JSON.stringify({}) });
+}
+
+export function verifyStudentStatus(email: string): Promise<StudentVerifyResponse> {
+  return apiFetch('/api/billing/student-verify', { method: 'POST', body: JSON.stringify({ email }) });
 }
