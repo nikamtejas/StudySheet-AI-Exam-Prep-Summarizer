@@ -117,5 +117,10 @@ export const JobSchema = z.object({
   summaryId: z.string().nullable(),
   error: z.string().nullable(),
   createdAt: z.string(),
+  // docs/studysheet-milestones.md M11: a non-error, user-facing line (e.g.
+  // "the AI service is temporarily unavailable, retrying automatically") —
+  // distinct from `error`, which stays reserved for a real terminal
+  // failure. Null the rest of the time.
+  statusMessage: z.string().nullable(),
 });
 export type JobDTO = z.infer<typeof JobSchema>;

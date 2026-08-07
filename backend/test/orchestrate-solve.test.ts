@@ -3,11 +3,18 @@ import { randomUUID } from 'node:crypto';
 
 const mockCreate = vi.fn();
 
-vi.mock('@anthropic-ai/sdk', () => ({
-  default: vi.fn().mockImplementation(() => ({
-    messages: { create: mockCreate },
-  })),
-}));
+// Real error classes (not the mocked default export) — ai/errors.ts's
+// isTransientAiError does `instanceof APIConnectionError` etc., which only
+// works against the actual classes, not fakes.
+vi.mock('@anthropic-ai/sdk', async () => {
+  const actual = await vi.importActual<typeof import('@anthropic-ai/sdk')>('@anthropic-ai/sdk');
+  return {
+    ...actual,
+    default: vi.fn().mockImplementation(() => ({
+      messages: { create: mockCreate },
+    })),
+  };
+});
 
 vi.mock('../src/config/env', async () => {
   const actual = await vi.importActual<typeof import('../src/config/env')>('../src/config/env');

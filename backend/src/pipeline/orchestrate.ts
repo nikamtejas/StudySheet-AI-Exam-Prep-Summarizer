@@ -13,10 +13,21 @@ import { mapVisionBatch } from './mapVision';
 import { reduceChunks } from './reduce';
 import { solveOne } from './verify';
 import { synthesize } from './synthesize';
+import { isTransientAiError } from '../ai/errors';
+import { enqueueSummarizeJobRetry } from '../worker/queue';
 
 // Problems are solved+verified in parallel, capped — never sequentially and
 // never batched into one call (docs/studysheet-build-prompt.md §7 stage 7).
 const SOLVE_CONCURRENCY = 4;
+
+// docs/studysheet-milestones.md M11: "the model API being unreachable
+// produces queued jobs and an honest message, not errors." Exponential
+// backoff (30s, 60s, 120s, 240s, 480s — ~15 minutes total) gives a real but
+// temporary outage room to recover without hammering it, while still
+// eventually surfacing a genuinely prolonged one as a real failure instead
+// of retrying forever.
+const MAX_TRANSIENT_RETRIES = 5;
+const TRANSIENT_RETRY_BASE_DELAY_MS = 30_000;
 
 // Drives a Job through prepare → chunk → map → reduce → synthesize, exactly
 // as far as its persisted `stage` allows. Every stage checks `job.stage`
@@ -224,8 +235,30 @@ export async function processJob(jobId: string): Promise<void> {
       await job.save();
     }
   } catch (err) {
+    if (isTransientAiError(err) && job.transientRetryCount < MAX_TRANSIENT_RETRIES) {
+      job.transientRetryCount += 1;
+      job.status = 'queued';
+      job.statusMessage = `The AI service is temporarily unavailable — retrying automatically (attempt ${job.transientRetryCount} of ${MAX_TRANSIENT_RETRIES}).`;
+      // stage, chunkResults, problemResults, quotaSettled all stay exactly
+      // as they are — this is the same "resume from the last persisted
+      // checkpoint" resumability every other crash-and-restart already
+      // relies on (reliability invariants 1, 2, 6), just triggered by an
+      // outage instead of a process crash. The reservation is never
+      // released here: the job isn't failing, it's waiting.
+      await job.save();
+
+      const delayMs = TRANSIENT_RETRY_BASE_DELAY_MS * 2 ** (job.transientRetryCount - 1);
+      await enqueueSummarizeJobRetry(job.id, delayMs);
+      log.warn(
+        { err, retryCount: job.transientRetryCount, delayMs },
+        'transient AI-service error — re-queued instead of failing',
+      );
+      return;
+    }
+
     job.status = 'failed';
     job.error = (err as Error).message;
+    job.statusMessage = null;
 
     if (!job.quotaSettled) {
       const plan = await resolvePlan(job.userId);

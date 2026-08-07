@@ -34,3 +34,22 @@ export async function enqueueSummarizeJob(jobId: string): Promise<void> {
     },
   );
 }
+
+// docs/studysheet-milestones.md M11: "the model API being unreachable
+// produces queued jobs... not errors" — a fresh BullMQ entry for the same
+// Mongo Job id, delayed rather than picked up immediately, so a sustained
+// AI-service outage doesn't turn into a tight retry loop hammering it.
+// pipeline/orchestrate.ts is what decides when to call this instead of
+// failing the job outright.
+export async function enqueueSummarizeJobRetry(jobId: string, delayMs: number): Promise<void> {
+  await getSummarizeQueue().add(
+    SUMMARIZE_QUEUE_NAME,
+    { jobId },
+    {
+      attempts: 1,
+      removeOnComplete: true,
+      removeOnFail: false,
+      delay: delayMs,
+    },
+  );
+}

@@ -7,6 +7,7 @@ function job(overrides: Partial<SseJobFields> = {}): SseJobFields {
     status: 'processing',
     tokensUsed: { input: 0, output: 0 },
     costCents: 0,
+    statusMessage: null,
     chunks: [],
     visionChunks: [],
     problems: [],

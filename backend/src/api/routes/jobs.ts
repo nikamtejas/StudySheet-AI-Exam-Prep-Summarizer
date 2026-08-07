@@ -29,6 +29,7 @@ function toJobDTO(job: JobInstance): JobDTO {
     summaryId: job.summaryId,
     error: job.error,
     createdAt: job.createdAt.toISOString(),
+    statusMessage: job.statusMessage,
   };
 }
 

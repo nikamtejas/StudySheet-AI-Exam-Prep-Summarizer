@@ -87,6 +87,20 @@ export interface JobAttrs {
   // Never set for a signed-in user's job, which is how the same index leaves
   // real accounts' jobs alone.
   anonymousExpiresAt: Date | null;
+  // docs/studysheet-milestones.md M11: "the model API being unreachable
+  // produces queued jobs and an honest message, not errors." Incremented
+  // each time pipeline/orchestrate.ts catches a transient AI-service error
+  // (ai/errors.ts's isTransientAiError) and re-queues instead of failing;
+  // capped (MAX_TRANSIENT_RETRIES in orchestrate.ts) so a genuinely
+  // prolonged outage still eventually surfaces as a real failure instead of
+  // retrying forever.
+  transientRetryCount: number;
+  // A non-error, user-facing status line — distinct from `error` (which is
+  // reserved for a real terminal failure) specifically so a job stuck
+  // waiting out an AI outage still reads as "in progress," not "broken," in
+  // the UI and the SSE stream (isTerminal() only looks at `status`, and this
+  // path never sets status to 'failed').
+  statusMessage: string | null;
 }
 
 export type JobInstance = HydratedDocument<JobAttrs>;
@@ -207,6 +221,8 @@ const JobMongooseSchema = new Schema<JobAttrs>(
     startedAt: { type: Date, default: null },
     finishedAt: { type: Date, default: null },
     anonymousExpiresAt: { type: Date, default: null },
+    transientRetryCount: { type: Number, default: 0 },
+    statusMessage: { type: String, default: null },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );

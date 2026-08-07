@@ -7,6 +7,11 @@ export interface SseProgressSnapshot {
   progress: JobProgress;
   tokensUsed: { input: number; output: number };
   costCents: number;
+  // docs/studysheet-milestones.md M11 — surfaced live so a client watching
+  // the processing view sees "retrying automatically" during an AI-service
+  // outage, not just a stalled progress bar (pipeline/orchestrate.ts sets
+  // this on Job, never on a terminal failure).
+  statusMessage: string | null;
 }
 
 export interface SseJobFields extends JobProgressCounts {
@@ -14,6 +19,7 @@ export interface SseJobFields extends JobProgressCounts {
   status: string;
   tokensUsed: { input: number; output: number };
   costCents: number;
+  statusMessage: string | null;
 }
 
 export function computeSseSnapshot(job: SseJobFields): SseProgressSnapshot {
@@ -23,6 +29,7 @@ export function computeSseSnapshot(job: SseJobFields): SseProgressSnapshot {
     progress: computeJobProgress(job),
     tokensUsed: job.tokensUsed,
     costCents: job.costCents,
+    statusMessage: job.statusMessage,
   };
 }
 
